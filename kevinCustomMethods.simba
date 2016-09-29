@@ -1,0 +1,759 @@
+{$DEFINE SRLCOMPATIBILITY}
+{$i SRL-6/SRL.simba}
+{$i ezForm.simba}
+{$include_once ogLib/lib/core/core.Simba}
+
+const
+  mainScreenX = 576;
+  mainScreenY = 378;
+  VERSION = 1.00;
+  soundFile:= '../Air Horn.wav';
+
+var
+  clientCenter: TPoint;
+  mainScreenBox: TBox;
+  playerModel: glModel;
+
+procedure killScript(reason: string);
+begin
+  Writeln(reason);
+  TerminateScript;
+end;
+
+procedure debugPrint(str: string; debug: boolean);
+begin
+  if(debug)then
+    writeln(str);
+end;
+
+procedure unexpectedOccurrence(key, message: string; sound: boolean);
+var
+  directory: string;
+begin
+  directory:= ScriptPath + explode('.', ScriptFile)[0];
+  if(not DirectoryExists(directory))then
+    CreateDirectory(directory);
+  WriteINI('CodeFix', key, message, directory + '\Settings.ini');
+  if(sound)then
+    PlaySound(soundFile);
+end;
+
+procedure celebrate(reason: string; sound: boolean);
+begin
+  writeln(reason);
+  if(sound)then
+    PlaySound(soundFile);
+end;
+
+function inTheMiddle(check, beginningPoint, endPoint: integer): boolean;
+begin
+  result:= (check > beginningPoint) and (check < endPoint);
+end;
+
+//Downloads 'fileLocation' and stores at 'fileName'
+procedure DownloadFile(fileName, fileLocation: String);
+var
+  fileLocal: LongInt;
+  download: String;
+begin
+  try
+    if not FileExists(fileName) then
+      fileLocal := CreateFile(fileName)
+    else
+    begin
+      fileLocal:=  OpenFile(fileName, true);
+      if(FileSize(fileLocal) > 100)then
+      begin
+        CloseFile(fileLocal);
+        Exit;
+      end;
+    end;
+    CloseFile(fileLocal);
+    fileLocal := RewriteFile(fileName, False);
+    download:= GetPage(fileLocation);
+    WriteFileString(fileLocal, download);
+  finally
+    if(fileLocal > 0)then
+      CloseFile(fileLocal);
+  end;
+end;
+
+procedure GetUpdateNotes(versionRemote, page: string);
+var
+  updateNotes: string;
+begin
+  updateNotes:= GetPage(page);
+  if((updateNotes = '') or (pos('<!DOCTYPE HTML PUBLIC', updateNotes) = 1))then
+  begin
+    WriteLn('Update notes were not found.  Sorry.');
+    Exit;
+  end;
+  MessageBox(updateNotes, ('Update Notes V' + versionRemote), 0);
+end;
+
+procedure Update(updatePage, updateNotesPage, versionPage, fileName: string);//TODO?
+var
+  version_remote, update: string;
+  fh: integer;
+  remoteNum: extended;
+begin
+  WriteLn('Update check...');
+  version_remote := GetPage(versionPage);
+  try
+    version_remote := GetPage(versionPage);
+    remoteNum:= StrToFloat(version_remote);
+  except
+    WriteLn('Update check failed!');
+    Exit;//Update isn't necessarily required
+  end;
+  if (remoteNum > VERSION) then
+  begin
+    if MessageBox(ScriptFile + ' V' + version_remote + ' is available. Do you wish to update?', 'Newer version available', 1) = 1 then
+    begin
+      try
+      begin
+        fh := Rewritefile(ScriptPath + ScriptFile + version_remote + '.simba', true);
+        update:= GetPage(updatePage);
+        if((update = '') or (pos('<!DOCTYPE HTML PUBLIC', update) = 1))then
+        begin
+          WriteLn('Something failed in updating the script.  However, an update is out.');
+          Exit;
+        end;
+        WriteFileString(fh, update);
+        MessageBox('Successfully updated ' + ScriptFile + ' to V' + version_remote + '! Please open the newly saved script to run the newest version.', 'Success', 0);
+        CloseFile(fh);
+        GetUpdateNotes(version_remote, '');
+        TerminateScript();
+      end;
+      except
+      begin
+        MessageBox('An error occurred while trying to update!', 'Error', 0);
+      end;
+      finally
+        begin
+          CloseFile(fh);
+        end;
+      end;
+    end else
+    begin
+      WriteLn('Update was declined :(');
+    end;
+  end;
+  WriteLn('No update needed.');
+end;
+
+procedure AmIBrowsingAnotherWindow();
+begin
+  if(randomRange(1, 100) < 88)then
+  begin
+    mouse(Point(random(810,1280), random(610, 960)), MOUSE_MOVE);//mouse.move(Point(random(810, 1280), random(610, 960)));
+  end;
+end;
+
+procedure antiban();
+begin
+  if(randomRange(1, 49) = 1)then
+  begin
+    wait(randomRange(60000, 180000));
+  end;
+end;
+
+procedure preventLogout();
+begin
+  ClickMouse(RandomRange(20, 780), RandomRange(20, 580), mouse_Right);
+  wait(randomrange(60, 240));
+  mouse(Point(random(810,1280), random(610, 960)), MOUSE_MOVE);//mouse.move(Point(random(810, 1280), random(610, 960)));
+end;
+
+procedure setCameraLikePlayer();
+var
+  degrees: int32;
+begin
+  degrees:= tMinimap.getDegrees();
+  if(degrees < 356) and (degrees > 4)then
+    tminimap.clickResetCamera();
+  mainScreen.setAngle(MS_ANGLE_HIGH);
+  mainScreen.setZoom(false);
+end;
+
+function isFlag(): boolean;
+begin
+  result:= ogl.getTextures(1275).indexes > 0;
+end;
+
+//waitFlag also written by Clarity
+procedure waitFlag();
+begin
+  wait(random(250, 400));
+  while (not ogl.getTextures(1275).isEmpty()) do
+    wait(random(200, 500));
+end;
+
+procedure waitActivePlay(min, max: integer);
+begin
+  if(randomRange(1,7) = 1)then
+  begin
+    wait(RandomRange(150,450));
+    exit;
+  end;
+  wait(RandomRange(min, max));
+end;
+
+function buildWaitTimer(min, max: integer; afkDelay, debug: boolean): integer;
+begin
+  result:= RandomRange(min, max);
+  if(afkDelay)then
+  begin
+    result:= result + randomRange(30000, 90000);
+    debugPrint('We''re gonna wait ' + inttostr(result) + 'ms until our next action because we''re pretending to be a human.', debug);
+  end;
+end;
+
+//getTime written by Clarity
+function getTime(time: uint32): string;
+var
+  h, m, s: integer;
+begin
+  s := time mod 3600000 mod 60000 div 1000;
+  m := time mod 3600000 div 60000;
+  h := time div 3600000;
+  result:= (toStr(h) + ' h ' + toStr(m) + ' m ' + toStr(s) + ' s');
+end;
+
+procedure printAllModelsInArea(x1, y1, x2, y2: integer);
+var
+  all: glModelArray;
+  i: integer;
+  tmp: glModel;
+  pt, adjustedPoint: TPoint;
+  cameraAdjustment: int64;
+begin
+  all:= ogl.getModels();
+  smart.graphics.Clear();
+  smart.graphics.DrawBox(x1, y1, x2, y2);
+  for i:=0 to high(all) do
+  begin
+    if((all[i].ID <> 65536) and (all[i].TID <> 0) and inTheMiddle(all[i].x, x1, x2) and inTheMiddle(all[i].y, y1, y2))then
+    begin
+      tmp:= all[i];
+      pt:= Point(tmp.X, tmp.Y);//This logs to debug the x and y on separate lines and I can't seem to turn that off
+      if((pt.x > 20) and (pt.y > 20) and (pt.x + 20 < mainScreenX) and (pt.y + 20 < mainScreeny))then
+      begin
+        writeln(all[i]);
+        smart.graphics.DrawText(inttostr(tmp.ID), 'smallChars', pt, clRed);
+      end;
+    end;
+  end;
+end;
+
+procedure printAllModelsInMainScreen();
+begin
+  printAllModelsInArea(0, 0, mainScreenX, mainScreenY);
+end;
+
+function getPlayerModel(debug: boolean): glModel;
+var
+  playerBox: TBox;
+  pModel: glModelArray;
+  i: integer;
+begin
+  playerBox:=intToBox(clientCenter.x-20, clientCenter.y-25, clientCenter.x+20, clientCenter.y+25);
+  pModel:=ogl.getModels(playerBox);
+  for i:=0 to high(pModel) do
+  begin
+    if(pModel[i].TID > 1000)then
+    begin
+      result:= pModel[i];
+      DebugPrint('The player model is: ' + ToString(result), debug);
+      exit;
+    end;
+  end;
+end;
+
+function printAllCharsInAreaAsString(x1, y1, x2, y2: integer): string;
+var
+  all: glCharArray;
+  i: integer;
+begin
+  all:= ogl.getChars();
+  for i:=0 to high(all) do
+  begin
+    if(inTheMiddle(all[i].x, x1, x2) and inTheMiddle(all[i].y, y1, y2))then
+    begin
+      result += all[i].letter;
+    end;
+  end;
+end;
+
+//1 through 4, starting at the bottom.  Returns all [count] lines.
+function readLastChatLines(count: integer): string;
+begin
+  case count of
+    1: result:= ogl.getChars(IntToBox(0, 560, 560, 575)).toString();
+    2: result:= ogl.getChars(IntToBox(0, 550, 560, 575)).toString();
+    3: result:= ogl.getChars(IntToBox(0, 530, 560, 575)).toString();
+    4: result:= ogl.getChars(IntToBox(0, 500, 560, 575)).toString();
+  end;
+end;
+
+//1 through 4, starting at the bottom.  Returns only line requesed.
+function readChatLine(count: integer): string;
+begin
+  case count of
+    1: result:= ogl.getChars(IntToBox(0, 560, 560, 575)).toString();
+    2: result:= ogl.getChars(IntToBox(0, 550, 560, 560)).toString();
+    3: result:= ogl.getChars(IntToBox(0, 530, 560, 550)).toString();
+    4: result:= ogl.getChars(IntToBox(0, 500, 560, 530)).toString();
+  end;
+end;
+
+//Why does such a simple function exist you ask?  Because whoever wrote IntToBox() and Point()
+//Doesn't know what consistent standards are.
+function Box(x1, y1, x2, y2: int32): TBox;
+begin
+  result:= IntToBox(x1, y1, x2, y2);
+end;
+
+//Similar to box.expand, but returns a new reference instead of self editing
+function SuperSizedBox(box: tbox; size: int32): tbox;
+begin
+  result.X1:= box.X1 - size;
+  result.Y1:= box.Y1 - size;
+  result.X2:= box.X2 + size;
+  result.Y2:= box.Y2 + size;
+end;
+
+procedure drawBoxAroundTexture(texture: glTexture);
+begin
+  smart.graphics.DrawBox(texture.bounds.X1, texture.bounds.Y1, texture.bounds.X2, texture.bounds.Y2);
+end;
+
+function isSearchableTexture(texture: glTexture): boolean;
+begin
+  result:= true;
+  if(texture.ID = 88625)then//individual inventory slot
+  begin
+    result:= false;
+  end else if (texture.ID = 3786240)then//Inventory background texture
+  begin
+    result:= false;
+  end else if (texture.ID = 73440)then//box around the bottom pouches and wealth
+  begin
+    result:= false;
+  end else if(texture.id = 11926)then//Invention pouch
+  begin
+    result:= false;
+  end else if(texture.id = 257366)then//Currency pouch
+  begin
+    result:= false;
+  end else if(texture.id = 33442)then//wealth evaluator
+  begin
+    result:= false;
+  end else if(texture.id = 58472)then//Price checker
+  begin
+    result:= false;
+  end else if(texture.id = 65081)then//Umm... little corner texture things
+  begin
+    result:= false;
+  end else if(texture.id = 28550)then//Umm... otherlittle corner texture things
+  begin
+    result:= false;
+  end else if(texture.id = 24480)then//Bar splitting tab textures from inventory slot textures
+  begin
+    result:= false;
+  end;
+end;
+
+procedure printAllTexturesInArea(x1, y1, x2, y2: integer);
+var
+  all: glTextureArray;
+  i: integer;
+  point: TPoint;
+  texture: glTexture;
+begin
+  all:= ogl.getTextures();
+  smart.graphics.Clear();
+  smart.graphics.DrawBox(x1+1, y1+1, x2-1, y2-1);
+  for i:=0 to high(all) do
+  begin
+    if(inTheMiddle(all[i].bounds.x1, x1, x2) and inTheMiddle(all[i].bounds.x2, x1, x2) and inTheMiddle(all[i].bounds.y1, y1, y2) and inTheMiddle(all[i].bounds.y2, y1, y2))then
+    begin
+      texture:= all[i];
+      point:= texture.toPoint;//This logs to debug the x and y on separate lines and I can't seem to turn that off
+      //There are lots of generic textures we don't care about. let's not print those
+      if(isSearchableTexture(texture))then
+      begin
+        if(texture.bounds.X2 - texture.bounds.x1 > 10) and (texture.bounds.y2 - texture.bounds.y1 > 15)then
+        begin
+          writeln(texture);
+          if((point.x > 35) and (point.y > 10) and (point.x + 50 < 800) and (point.y + 10 < 600))then
+            smart.graphics.DrawText(inttostr(texture.ID), 'smallChars', point, clRed);
+          smart.graphics.DrawBox(texture.bounds.x1+1, texture.bounds.y1+1, texture.bounds.x2-1, texture.bounds.y2-1)
+        end;
+      end;
+    end;
+  end;
+end;
+
+procedure printAllTexturesInMinimap();
+begin
+  printAllTexturesInArea(mainScreenX, 0, 800, 198);
+end;
+
+procedure printAllTexturesInMainscreen();
+begin
+  printAllTexturesInArea(0, 0, mainScreenX, mainScreenY);
+end;
+
+procedure printAllTexturesInInventory();
+begin
+  printAllTexturesInArea(mainScreenX, 324, 800, 600);
+end;
+
+//Sometime ogl.getTextures(int, box) gives me an impossible texture... let's check for it
+function verifyTextureIsValid(texture: glTexture): boolean;
+begin
+  if((texture.bounds.X2 > texture.bounds.X1) and (texture.bounds.Y2 > texture.bounds.Y1))then
+    result:= true;
+end;
+
+//Retrieves all textures from the parameter IDs found within the box
+//getTextureContainingTexture([36941, 21381, 31263], tabOpenTextures[i].bounds)
+function getTexturesFromBox(textureIDs: TIntegerArray; box: TBox): TIntegerArray;
+var
+  i: integer;
+  textures: array of glTexture;
+begin
+  for i:=0 to high(textureIDs) do
+  begin
+    if(ogl.getTextures(textureIDs[i], box))then
+    begin
+      result.append(textureIDs[i]);
+    end;
+  end;
+end;
+
+function areAnyTexturesValid(textures: glTextureArray): boolean;
+var
+  i: integer;
+begin
+  for i:=0 to high(textures) do
+  begin
+    if((not isSearchableTexture(textures[i])) or (not verifyTextureIsValid(textures[i])))then
+      continue;
+    result:= true;
+    exit;
+  end;
+end;
+
+function getAllTexturesInInventory(): glTextureArray;
+var
+  textures: glTextureArray;
+  inventoryBgTexture: glTexture;
+  i: integer;
+  found: boolean;
+begin
+  gameTabs.openTab(TAB_BACKPACK);
+  textures:= ogl.getTextures(3786240);
+  if(textures.indexes() = 0)then
+    exit;
+  for i:=0 to high(textures) do
+  begin
+    if(ogl.getTextures(88625, textures[i].bounds).indexes() >= 26)then
+    begin
+      inventoryBgTexture:= textures[i];
+      found:= true;
+      break;
+    end;
+  end;
+  if(not found)then
+    exit;
+  result:= ogl.getTextures(inventoryBgTexture.bounds );
+end;
+
+//todo fix this.  Really only works with individual items atm.
+function tInventory.getCount(funcID:int32):int32;
+var
+  textures, itemTextures: glTextureArray;
+  inventoryBgTexture: glTexture;
+  i, count: integer;
+  strCount: string;
+  found: boolean;
+begin
+  gameTabs.openTab(TAB_BACKPACK);
+  textures:= ogl.getTextures(3786240);
+  if(textures.indexes() = 0)then
+    exit;
+  for i:=0 to high(textures) do
+  begin
+    if(ogl.getTextures(88625, textures[i].bounds).indexes() = 28)then
+    begin
+      inventoryBgTexture:= textures[i];
+      found:= true;
+      break;
+    end;
+  end;
+  if(not found)then
+    exit;
+  itemTextures:= ogl.getTextures(funcID, inventoryBgTexture.bounds);
+  result:= itemTextures.indexes();
+  if(result > 1)then
+  begin
+    for i:= 0 to high(itemTextures) do
+    begin
+      if(verifyTextureIsValid(itemTextures[i]))then
+      begin
+        count:= count + 1;
+      end;
+    end;
+    if(i = count)then
+    begin
+      exit;
+    end;
+    //If we get here, it means a texture was not valid.  That should never happen,
+    //but I was able to make it happen somehow in testing... consistently... somehow.
+    //So now you get the safety check here too.
+    if (count <> 1)then
+    begin
+      result:= count;
+      exit;
+    end;
+    for i:= 0 to high(itemTextures) do
+    begin
+      if(verifyTextureIsValid(itemTextures[i]))then
+      begin
+        strCount:= ogl.getChars(SuperSizedBox(itemTextures[i].bounds, 4)).toString();
+        if(strCount = '')then
+          strCount:= '1';
+        result:= StrToInt(strCount);
+        exit;
+      end;
+    end;
+  end;
+  if(result = 1)then
+  begin
+    strCount:= ogl.getChars(SuperSizedBox(itemTextures[i].bounds, 4)).toString();
+    if(strCount = '')then
+      strCount:= '1';
+    result:= StrToInt(strCount);
+  end;
+end;
+
+//Retrieves the matching item found in the last possible slot (top left start count like a book)
+function tInventory.getItemLastSlot(funcID:int32):glTexture;
+var
+  textures, slotTextures: glTextureArray;
+  inventoryBgTexture: glTexture;
+  count: string;
+  i, j: integer;
+  found: boolean;
+begin
+  gameTabs.openTab(TAB_BACKPACK);
+  textures:= ogl.getTextures(3786240);
+  if(textures.indexes() = 0)then
+    exit;
+  for i:=0 to high(textures) do
+  begin
+    slotTextures:= ogl.getTextures(88625, textures[i].bounds);
+    if(slotTextures.indexes() > 20)then
+    begin
+      inventoryBgTexture:= textures[i];
+      found:= true;
+      break;
+    end;
+  end;
+  if(not found)then
+    exit;
+  textures:= ogl.getTextures(funcID, inventoryBgTexture.bounds);
+  if(textures.indexes() = 1)then
+  begin
+    result:= textures[0];
+    exit;
+  end;
+  for i:= high(slotTextures) downto 0 do
+  begin
+    textures:= ogl.getTextures(slotTextures[i].bounds);
+    for j:=0 to high(textures) do
+    begin
+      if(textures[j].id = funcID)then
+      begin
+        result:= textures[j];
+        exit;
+      end;
+    end;
+  end;
+end;
+
+//Retrieves the matching item found in the first possible slot (top left start count like a book)
+function tInventory.getItemFirstSlot(funcID:int32):glTexture;
+var
+  textures, slotTextures: glTextureArray;
+  inventoryBgTexture: glTexture;
+  count: string;
+  i, j: integer;
+  found: boolean;
+begin
+  gameTabs.openTab(TAB_BACKPACK);
+  textures:= ogl.getTextures(3786240);
+  if(textures.indexes() = 0)then
+    exit;
+  for i:=0 to high(textures) do
+  begin
+    slotTextures:= ogl.getTextures(88625, textures[i].bounds);
+    if(slotTextures.indexes() > 20)then
+    begin
+      inventoryBgTexture:= textures[i];
+      found:= true;
+      break;
+    end;
+  end;
+  if(not found)then
+    exit;
+  textures:= ogl.getTextures(funcID, inventoryBgTexture.bounds);
+  if(textures.indexes() = 1)then
+  begin
+    result:= textures[0];
+    exit;
+  end;
+  for i:= 0 to high(slotTextures) do
+  begin
+    textures:= ogl.getTextures(slotTextures[i].bounds);
+    for j:=0 to high(textures) do
+    begin
+      if(textures[j].id = funcID)then
+      begin
+        result:= textures[j];
+        exit;
+      end;
+    end;
+  end;
+end;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//Get count of filled inventory slots - use tabBackpack.count instead.
+{function tInventory.getInventoryCount():int32;
+var
+  textures, slotTextures: glTextureArray;
+  inventoryBgTexture: glTexture;
+  i, j: integer;
+  found: boolean;
+begin
+  gameTabs.openTab(TAB_BACKPACK);
+  //gametabOpen(TAB_BACKPACK);
+  textures:= ogl.getTextures(3786240);
+  if(textures.indexes() = 0)then
+    exit;
+  for i:=0 to high(textures) do
+  begin
+    slotTextures:= ogl.getTextures(88625, textures[i].bounds);
+    if(slotTextures.indexes() > 20)then
+    begin
+      inventoryBgTexture:= textures[i];
+      found:= true;
+      break;
+    end;
+  end;
+  if(not found)then
+    exit;
+  for i:= 0 to high(slotTextures) do
+  begin
+    textures:= ogl.getTextures(slotTextures[i].bounds);
+    for j:=0 to high(textures) do
+    begin
+      if(isSearchableTexture(textures[j]))then
+      begin
+        result:= result + 1;
+      end;
+    end;
+  end;
+end;}
+
+{function isGameTabOpen(tabID: int32): boolean;
+var
+  tabOpenTextures: glTextureArray;
+  i: int32;
+begin
+  tabOpenTextures:= ogl.getTextures(155923);//Open tab = 155923, Closed tab = 109148
+  for i:=0 to high(tabOpenTextures) do
+  begin
+    if(ogl.getTextures(tabID, tabOpenTextures[i].bounds).indexes() > 0) then
+    begin
+      result:= true;
+      exit;
+    end;
+  end;
+end;
+
+//Use GameTabs.open() instead.
+function gametabOpen(tab: int32): boolean;
+var
+  tabOpenTextures, tabTexture, toSelect: glTextureArray;
+  tabOpenTexture: glTexture;
+  i, tabID: integer;
+  selectedTextureID: TIntegerArray;
+begin
+  case tab of
+    TAB_BACKPACK:begin
+      tabID:= 36941;
+    end;
+    TAB_EQUIPMENT:begin
+      tabID:= 21381;
+    end;
+    TAB_STATS:begin
+      tabID:= 31263;
+    end;
+    TAB_PRAYER:begin
+      tabID:= 10821;
+    end;
+  end;
+  if(isGameTabOpen(tabID))then//Tab is already open, woot
+  begin
+    result:= true;
+    exit;
+  end;
+
+  //Desired isn't open, so check if any of the screens are open
+  tabOpenTextures:= ogl.getTextures(155923);
+  for i:=0 to high(tabOpenTextures) do
+  begin
+    selectedTextureID:=getTexturesFromBox([36941, 21381, 31263], tabOpenTextures[i].bounds);
+    if(selectedTextureID.indexes() > 0)then
+    begin
+      tabOpenTexture:= tabOpenTextures[i];
+      break;
+    end;
+  end;
+  if(tabOpenTexture.ID = 0)then//No tabs open... tabs screen entirely closed?
+  begin
+    writeln('No tabs were open... Kevin doesn''t have logic to open from the menu yet.');
+    exit;
+  end;
+
+  toSelect:= ogl.getTextures(tabID);
+  if(toSelect.indexes() = 0)then
+  begin
+    writeln('Some tabs are open... but ours is not visible.  Kevin needs new logic to open from menu.');
+    exit;
+  end else begin//Click our desired tab (if it's visible).
+    mouse(toSelect[0].randomizePointEllipse(15), mouse_Left);
+  end;
+end;}
