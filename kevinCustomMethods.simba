@@ -7,7 +7,7 @@
 const
   mainScreenX = 576;
   mainScreenY = 378;
-  VERSION = 0.99;
+  VERSION = 0.98;
   soundFile:= '../Air Horn.wav';
 
 var
@@ -89,13 +89,15 @@ begin
   try
     directory:= getDirectoryFromFile(fileName);
     if(not DirectoryExists(directory))then
-      createDirectoryList(directory);
-    if not FileExists(fileName) then
-      fileLocal := CreateFile(fileName)
-    else
     begin
+      createDirectoryList(directory);
+    end;
+    if not FileExists(fileName) then
+    begin
+      fileLocal := CreateFile(fileName);
+    end else begin
       fileLocal:=  OpenFile(fileName, true);
-      if(FileSize(fileLocal) > 100)then
+      if(FileSize(fileLocal) >= 0)then
       begin
         CloseFile(fileLocal);
         Exit;
@@ -158,7 +160,7 @@ procedure InitializeKevinCustomMethods();
 begin
   if(not FileExists(soundFile))then
     DownloadFile(soundFile,'https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/Air%20Horn.wav');
-  Update('https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/kevinCustomMethods.simba', '', '../Includes/ogLib/lib/kevinCustomMethods.simba');
+  Update('https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/kevinCustomMethods.simba', 'https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/kevinCustomMethodsNotes.txt', '../Includes/ogLib/lib/kevinCustomMethods.simba');
 end;
 
 procedure AmIBrowsingAnotherWindow();

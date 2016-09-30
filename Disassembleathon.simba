@@ -1,0 +1,160 @@
+program Disassembleathon;
+
+{$include_once ../Includes/ogLib/lib/kevinCustomMethods.simba}
+//{$include_once ogLib/lib/kevinCustomMethods.simba}
+
+//I believe this script will work on any screen setup, so long as inventory is visible.
+//Have nothing on for equipment.  Only put stuff in inventory willing to lose.
+//Disassembles about 2820 items per hour.  Theoretical max is only 3000.
+
+const
+  DEBUG = TRUE;
+  DRAG = FALSE;//I recommend keeping this false.  Dragging seems to work so rarely that
+  //it's definitely not worth it and it seems less natural.  That said, it's your choice.
+  //When false, make sure your invention spell is on your action bar.
+
+  InventionSpellTextureID = 32938;
+
+  DVERSION = '1.0';//Don't edit this.  It's for updates.
+
+var
+  failureCD: tCountDown;
+  count: integer;
+  biggestProductionCount: string;
+
+procedure proggy();
+var
+  perHour: integer;
+  time: string;
+begin
+  count:= count + 60;
+  perHour := round(count * (3600.0 / (getTimeRunning / 1000.0)));
+  time := getTime(getTimeRunning());
+  ClearDebug();
+  writeln('We''ve been running for ' + time);
+  writeln(inttoStr(count) + ' items disassembled made.');
+  writeln(inttoStr(perHour) + ' disassembles per hour');
+  if(biggestProductionCount <> '')then
+    DebugPrint('Biggest production count is: ' + biggestProductionCount, DEBUG);
+
+end;
+
+//GetProgress does not work and I'm unsure how it's supposed to work, hence a from-scratch creation.
+function tProduction.getActualProgress(): extended;
+var
+  textures: glTextureArray;
+begin
+  textures:= ogl.getTextures(10710, 2703647);
+  if(textures.indexes() > 0)then
+    result:= (textures[0].bounds.X2 - textures[0].bounds.X1) / 292;
+  if(result > 1)then
+  begin
+    biggestProductionCount:= 'size is ' + ToString(textures[0].bounds.X2 - textures[0].bounds.X1);
+    unexpectedOccurrence('tProduction.getActualProgress()', 'ToString(textures[0].bounds.X2 - textures[0].bounds.X1)', DEBUG);
+  end;
+  {ID = 10710, COLOURID = 2703647, FULLCOLOURID = 4613687, X = 284, Y = 161, BOUNDS = {X1 = 142, Y1 = 152, X2 = 427, Y2 = 171}
+end;
+
+function disassemble(): boolean;
+var
+  items, inventionPouch: glTextureArray;
+  inventoryBgTexture: glTexture;
+  i, multiplier: integer;
+  expectedProductionCheck: extended;
+  clickPoint: TPoint;
+  done: boolean;
+  failureCD: TCountDown;
+  actionKey: String;
+begin
+  i:= tabBackpack.count;
+  if(i = 0)then
+  begin
+    Writeln('Nothing in the inventory.');
+    TerminateScript();
+  end;
+  DebugPrint('Inventory count: ' + inttostr(i), DEBUG);
+  inventionPouch:= ogl.getTextures(11926);
+  if(inventionPouch.indexes() = 0)then
+  begin
+    killScript('No invention pouch found... Open up your inventory?');
+  end;
+  actionKey:= tactionBar.getActionKey(InventionSpellTextureID);
+  if(actionKey = '')then
+    killScript('Invention spell does not appear to be setup on your actionBar!');
+
+  items:= getAllTexturesInInventory();
+  while(areAnyTexturesValid(items))do
+  begin
+    done:= false;
+    items:= getAllTexturesInInventory();
+    for i:=0 to high(items) do
+    begin
+      smart.graphics.Clear();
+      if((not isSearchableTexture(items[i])) or (not verifyTextureIsValid(items[i])))then
+        continue;
+      drawBoxAroundTexture(items[i]);
+      if(DRAG)then
+      begin
+        mouse(items[i].randomizePointEllipse(15), MOUSE_MOVE);
+        GetMousePos(clickPoint.x, clickPoint.y);
+        clickPoint:= inventionPouch[0].randomizePointEllipse(20);
+        clickPoint.Y:= clickPoint.Y + 6;
+        smart.graphics.DrawCircle(clickPoint, 1);
+        dragMouse(clickPoint);
+      end else begin
+        SendKeys(actionKey,18+random(10), 18+random(10));
+        wait(RandomRange(550,1350));
+        mouse(items[i].randomizePointEllipse(15), MOUSE_Left);
+      end;
+      //wait on progress screen
+      AmIBrowsingAnotherWindow();
+      expectedProductionCheck:= RandomRange(80, 110) / 100;
+
+      failureCD.setTime(randomRange(1000,1500));
+      repeat
+        wait(RandomRange(125,250));
+      until(production.hasProduction()='progress') or (failureCD.isFinished);
+      if(production.hasProduction()='progress')then
+      begin
+        DebugPrint('Waiting on the production screen with check of ' + ToString(expectedProductionCheck), DEBUG);
+        repeat
+          AmIBrowsingAnotherWindow();
+          wait(randomRange(500, 1250));
+          if(expectedProductionCheck > 100)then
+          begin
+            done:= (production.hasProduction()<>'progress');
+            if(expectedProductionCheck >= 108)then
+            begin
+              multiplier:= 111 - Round(expectedProductionCheck);
+              Wait(RandomRange(2000,15000)*multiplier);
+            end;
+          end else begin
+            if((tProduction.getActualProgress() >= expectedProductionCheck) or (production.hasProduction()<>'progress'))then
+            begin
+              done:= true;
+            end;
+          end;
+        until(done);
+        proggy();
+      end;
+      break;
+    end;
+  end;
+end;
+
+begin
+  {InitializeKevinCustomMethods();
+  mainScreenBox:= IntToBox(0, 0, mainScreenX, mainScreenY);
+  ogl.setup([800, 600], [0, 0, mainScreenX, mainScreenY]);
+  ogl.setDebugMode('n');
+  smart.graphics.Clear();
+  ClearDebug();
+  disableSRLDebug:=true;
+  clientCenter := Point(288, 189);// ogl.getClientMidPoint();
+  DownloadFile('../raw.txt','https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/kevinCustomMethods.simba');
+  //Update('https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/kevinCustomMethods.simba', '', '../tempPlacement.simba');
+  //printAllTexturesInMinimap();
+  //printAllTexturesInArea(365,405,457,456);
+  disassemble();}
+  InitializeKevinCustomMethods();
+end.

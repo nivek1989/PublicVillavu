@@ -1,0 +1,4094 @@
+program SlayingKuradal;
+{$DEFINE SMART}
+{$i SRL/srl.simba}
+{$i ObjectDTM/ObjDTMInclude.simba}
+{$i srl/srl/misc/online.simba}
+{$i sps/sps.simba}
+{$i srl/srl/misc/debug.simba}
+{$i SRL/SRL/Skill/Fighting.Simba}
+
+const
+  //DO NOT TOUCH - USER SETTINGS ARE IN A FORM THAT POPS UP ON RUN
+  VERSION = 1.15;
+
+  //MSY2 accounting for action bar
+  MSY2A = 263;
+  MSCYA = 129;
+  lootOffsetX = -25;//prolly should be variable on monster.
+  lootOffsetY = 50;
+
+  BoneCol = 12365011;
+  BoneTol = 22;
+  BoneHue = 0.7;
+  BoneSat = 1.26;
+  BoneSize = 40;
+
+  BankBoothCol = 5338257;
+  BankBoothTol = 3;
+  BankBoothHue = 0.08;
+  BankBoothSat = 0.25;
+  BankBoothText = 'Bank Bank Booth';
+
+  //Extra DTMs
+  gemDTMString = 'mAAEAAHic42GAABYgZgJiNiDmhGIuKP7+//9/ViD9C0hDlTN8BbJB4j+AGCT+FyrHDDWDA4i5obizaz7UdOKwCANpgJFEjAwA0ngeCg==';
+  teletabDTMString = 'mggAAAHicY2NgYOBhQAABIJaBYhaoGA9UnBvKb5k+A0gyYWB+BuyAEQeGAADAbQJY';
+  inFightDTMString = 'mwQAAAHic42RgYGhlYmDoA+I2IG6A0pOAeCIQ1wNxIxBPZWRgmAXEc4B4OhB3A/FEIJ4PxIuAuAeIHSz0Gcz01RnsLfQYHC31GZbHyDLEWkgwVDqKMGRbCTEcylZkYAfaRwiTBADzKxGS';
+  redBarDTMString = '78DA6364636460D8C2800212F87819BE008519A17CC6D7406223AA1A6B7626062E0634355B09A85162C46A0E03BA1A02E600009A4A084C';
+type
+  LootItem = record
+    Name: String;
+    Value: integer;
+  end;
+  EquipmentItem = record
+    Name: String;
+    DTM: integer;
+  end;
+  Monster = record
+    Color: integer;
+    Tolerance: integer;
+    Hue: extended;
+    Sat: extended;
+    MinSize: integer;
+    UpText: String;
+    UpTextSplit: TStringArray;
+    Box: TBox;
+    Walk: Procedure();
+    WithdrawExtra: boolean;
+    WithdrawNames: TStringArray;
+    WithdrawQuantities: TIntegerArray;
+  end;
+  
+//Form related variables
+var
+  FoodDTMString, SaveFileName, PlayerName, PlayerPassword, PlayerPin: String;
+  MaxPlayers, SlayerXpBar, TotalXpBar, breakLengthMin, breakLengthMax, minutesTillBreakMax, minutesTillBreakMin, HealthToEat, HealthToEscape, MaxHealth: Integer;
+  LootStuff, LootSpecialBones, LootCharms, LootEffigies, DebugObjectFinder, DebugText, DebugSmart, SmartProggy, TextProggy, ImplementBreaks, ImplementAfkBreaks, FormSaved: boolean;
+  settingsForm:TForm;
+  params:TVariantArray;
+  saveButton, SaveEquipment, SaveMonster: TButton;
+  labels: array[0..16] of TLabel;
+  comboBoxes: array[0..2] of TComboBox;
+  textBoxes: array[0..13] of TEdit;
+  checkBoxes: array[0..10] of TCHECKBOX;
+  monsterQuit: TCheckBox;
+  monsterComboBox, equipmentComboBox: TComboBox;
+  EquipmentName: TEdit;
+  EquipmentNames, EquipmentDTMStrings: array[0..9] of TEdit;
+  EquipmentLabels: array[0..9] of TLabel;
+  EquipmentTitleLabel, MonsterTitleLabel, EquipmentNameLabel, EquipmentDTMLabel: TLabel;
+
+//Every other variable
+var
+  GoldEarned, TimeBegan, StartingTotalXP, StartingSlayerXp, CurrentSlayerXp, timeToBreak: Int64;
+  FoodQuantity, currentTargetsLeft, BreakLength: integer;
+  gemDTM, teletabDTM, redBarDTM, foodDTM, inFightDTM, proggyBmp: integer;
+  DebugMessages: array[0..4] of String;
+  SkillSlots: array[1..12] of string;
+  lootList: array of LootItem;
+  fightCanStart, UltimateSlot, RegenerateSlot, ThresholdSlot, TimeOfLastSkill, waitTimeBetweenSkills: integer;
+  foodRemaining, targetCompleted: boolean;
+  MonsterList: TStringArray;
+  Target: Monster;
+  //equipment variables
+  HelmetName, CapeName, AmuletName, WeaponName, ChestName, ShieldName, LegsName, GlovesName, BootsName, RingName: String;
+  HelmetDTM, CapeDTM, AmuletDTM, WeaponDTM, ChestDTM, ShieldDTM, LegsDTM, GlovesDTM, BootsDTM, RingDTM: integer;
+  
+procedure DeclarePlayers;
+begin
+  NumberOfPlayers(1);
+  CurrentPlayer := 0;
+
+  Players[0].Name := PlayerName;
+  Players[0].Pass := PlayerPassword;
+  Players[0].Pin  := PlayerPin;
+  Players[0].Nick := '';
+  Players[0].Member:= True;
+  Players[0].Active:=True;
+end;
+
+//This could technically be used to download any file... But I only use it for the sps map and the SMART paint
+procedure DownloadPic(picName, picLocation: String);
+var
+  picFile: LongInt;
+  pic: String;
+begin
+  try
+    if not FileExists(picName) then
+      picFile := CreateFile(picName)
+    else
+    begin
+      picFile:=  OpenFile(picName, true);
+      if(FileSize(picFile) > 100)then
+      begin
+        CloseFile(picFile);
+        Exit;
+      end;
+      CloseFile(picFile);
+    end;
+    CloseFile(picFile);
+    picFile := RewriteFile(picName, False);
+    pic:= GetPage(picLocation);
+    WriteFileString(picFile, pic);
+  finally
+    if(picFile > 0)then
+      CloseFile(picFile);
+  end;
+end;
+
+procedure GetUpdateNotes(versionRemote: string);
+var
+  updateNotes: string;
+begin
+  updateNotes:= GetPage('http://slaying-kuradal.googlecode.com/svn/updateNotes.txt');
+  if((updateNotes = '') or (pos('<!DOCTYPE HTML PUBLIC', updateNotes) = 1))then
+  begin
+    updateNotes:= GetPage('http://slaying-kuradal.googlecode.com/svn/updateNotes.TXT');
+    if((updateNotes = '') or (pos('<!DOCTYPE HTML PUBLIC', updateNotes) = 1))then
+    begin
+      WriteLn('Update notes were not found.  Sorry.');
+      Exit;
+    end;
+  end;
+  MessageBox(updateNotes, ('Update Notes V' + versionRemote), 0);
+end;
+
+procedure Updater;//About a quarter of this procedure taken from SuperUser
+var
+  version_remote, update: string;
+  fh: integer;
+  remoteNum: extended;
+begin
+  WriteLn('Update check...');
+  version_remote := GetPage('http://slaying-kuradal.googlecode.com/svn/version.TXT');
+  try
+  //  remoteNum:= StrToFloat(version_remote);
+  except;
+    try
+      version_remote := GetPage('http://slaying-kuradal.googlecode.com/svn/version.txt');
+    //  remoteNum:= StrToFloat(version_remote);
+    except
+      WriteLn('Update check failed!');
+      Exit;//Update isn't necessarily required
+    end;
+  end;
+  if (remoteNum > VERSION) then
+  begin
+    if MessageBox('Slaying Kuradal v' + version_remote + ' is available. Do you wish to update?', 'Newer version available', 1) = 1 then
+    begin
+      try
+      begin
+        fh := Rewritefile(ScriptPath + 'Slaying Kuradal' + version_remote + '.simba', true);
+        update:= GetPage('http://slaying-kuradal.googlecode.com/svn/SlayingKuradal.SIMBA');
+        if((update = '') or (pos('<!DOCTYPE HTML PUBLIC', update) = 1))then
+        begin
+          update:= GetPage('http://slaying-kuradal.googlecode.com/svn/SlayingKuradal.simba');
+          if((update = '') or (pos('<!DOCTYPE HTML PUBLIC', update) = 1))then
+          begin
+            WriteLn('Something failed in updating the script.  However, an update is out.');
+            Exit;
+          end;
+        end;
+        WriteFileString(fh, update);
+        MessageBox('Successfully updated Kevin''s Slayer Tower to v' + version_remote + '! Please open the newly saved script to run the newest version.', 'Success', 0);
+        CloseFile(fh);
+        GetUpdateNotes(version_remote);
+        TerminateScript();
+      end;
+      except
+      begin
+        MessageBox('An error occurred while trying to update!', 'Error', 0);
+      end;
+      finally
+        begin
+          CloseFile(fh);
+        end;
+      end;
+    end else
+    begin
+      WriteLn('Update was declined :(');
+    end;
+  end;
+  WriteLn('No update needed.');
+end;
+
+//Handle all downloads that may or may not be necessary.
+procedure CheckForUpdates;
+begin
+  DownloadPic((AppPath + '/Scripts/KSTProgPic.jpg'), 'http://i.imgur.com/E2oz1Lb.jpg');
+  DownloadPic((AppPath + '/Includes/SPS/img/runescape_other/SlayerTower.png'), 'http://i.imgur.com/oellkiZ.png');
+  DownloadPic((AppPath + '/Includes/SPS/img/runescape_other/fally.png'), 'http://i.imgur.com/7Twz5vr.png');
+  DownloadPic((AppPath + '/Includes/SPS/img/runescape_other/Grotworms.png'), 'http://i.imgur.com/VlqCc9S.png');
+  DownloadPic((AppPath + '/Includes/SPS/img/runescape_other/tav_dungeon.png'), 'http://i.imgur.com/UYTxnVK.png');
+  DownloadPic((AppPath + '/Includes/SPS/img/runescape_other/SurfaceTV.png'), 'http://i.imgur.com/218qU8q.png');
+  Updater;
+end;
+
+//Print the 5 most recent major function calls on the SMART screen - that way a sort of "stack trace" exists in case of failure.
+procedure RunSmartDebug(Message: String);
+var
+  i: integer;
+begin
+  if(DebugSmart)then
+  begin
+    i:= 5;
+    while(i >= 2) do
+    begin
+      DebugMessages[i-1]:= DebugMessages[i-2];
+      Dec(i);
+    end;
+    DebugMessages[0]:= Message;
+    SMART_ClearCanvasArea(IntToBox(MSX1, MSY1, MSX2, MSY2));
+    for i:=0 to 4 do//Draw the list of debug order newest at top.
+    begin
+      SMART_DrawTextEx(False, 12, (120 + (15 * i)), LoginChars, DebugMessages[i], 13158600);
+    end;
+  end;
+end;
+
+//Draw the atpa if the debugger is on
+procedure RunObjectDebug(TPA: TPointArray);
+begin
+  if(DebugObjectFinder)then
+    DebugTPA(TPA, '');
+//    DebugATPABounds(ATPA);
+end;
+
+//Write a little debug message here and there in the debug output if option is on.
+procedure RunTextDebug(msg: String);
+begin
+  if(DebugText)then
+    WriteLn(msg);
+end;
+
+function MakeBox(x1, y1, x2, y2: integer): TBox;
+begin
+  Result.X1:= x1;
+  Result.Y1:= y1;
+  Result.X2:= x2;
+  Result.Y2:= y2;
+end;
+//THE FOLLOWING 2 MOUSE METHODS ARE 100% THE WORK OF FLIGHT
+procedure BrakeWindMouse(xs, ys, xe, ye, gravity, wind, minWait, maxWait, targetArea: extended);
+var
+  veloX,veloY,windX,windY,veloMag,dist,randomDist,lastDist,D: extended;
+  lastX,lastY,MSP,W,TDist,T: integer;
+  sqrt2,sqrt3,sqrt5,PDist,maxStep: extended;
+begin
+  MSP  := MouseSpeed;
+  sqrt2:= sqrt(2);
+  sqrt3:= sqrt(3);
+  sqrt5:= sqrt(5);
+  TDist := Distance(Round(xs), Round(ys), Round(xe), Round(ye));
+  if (TDist < 1) then
+    TDist := 1;
+  MarkTime(T);
+  repeat
+    if (TimeFromMark(T)>5000) then
+      break;
+    dist:= hypot(xs - xe, ys - ye);
+    wind:= minE(wind, dist);
+    if (dist < 1) then
+      dist := 1;
+    PDist := (dist/TDist);
+    if (PDist < 0.01) then
+      PDist := 0.01;
+    {
+      These constants seem smooth to me, but
+      feel free to modify these settings however
+      you wish.
+    }
+    if (PDist >= 0.15) then                                 //15% (or higher) dist to destination
+    begin
+      D := (Round((Round(dist)*0.3))/5);
+      if (D < 20) then
+        D := 20;
+    end else if (PDist < 0.15) then
+    begin
+      if ((PDist <= 0.15) and (PDist >= 0.10)) then         //10%-15%
+        D := RandomRange(8, 13)
+      else if (PDist < 0.10) then                           //< 10%
+        D := RandomRange(4, 7);
+    end;
+    if (D <= Round(dist)) then
+      maxStep := D
+    else
+      maxStep := Round(dist);
+
+    if dist >= targetArea then
+    begin
+      windX:= windX / sqrt3 + (random(round(wind) * 2 + 1) - wind) / sqrt5;
+      windY:= windY / sqrt3 + (random(round(wind) * 2 + 1) - wind) / sqrt5;
+    end else
+    begin
+      windX:= windX / sqrt2;
+      windY:= windY / sqrt2;
+    end;
+    veloX:= veloX + windX;
+    veloY:= veloY + windY;
+    veloX:= veloX + gravity * (xe - xs) / dist;
+    veloY:= veloY + gravity * (ye - ys) / dist;
+    if (hypot(veloX, veloY) > maxStep) then
+    begin
+      randomDist:= maxStep / 2.0 + random(round(maxStep) div 2);
+      veloMag:= sqrt(veloX * veloX + veloY * veloY);
+      veloX:= (veloX / veloMag) * randomDist;
+      veloY:= (veloY / veloMag) * randomDist;
+    end;
+    lastX:= Round(xs);
+    lastY:= Round(ys);
+    xs:= xs + veloX;
+    ys:= ys + veloY;
+    if (lastX <> Round(xs)) or (lastY <> Round(ys)) then
+      MoveMouse(Round(xs), Round(ys));
+    W := (Random((Round(100/MSP)))*6);
+    if (W < 5) then
+      W := 5;
+    W := Round(W*1.2);
+    wait(W);
+    lastdist:= dist;
+  until(hypot(xs - xe, ys - ye) < 1)
+  if (Round(xe) <> Round(xs)) or (Round(ye) <> Round(ys)) then
+    MMouse(Round(xe), Round(ye), 0, 0);
+  MouseSpeed := MSP;
+end;
+
+Procedure BrakeMMouse(eX, eY, ranX, ranY: Integer);
+var
+  randSpeed: extended;
+  X,Y,MS: integer;
+begin
+  MS := MouseSpeed;
+  randSpeed := (random(MouseSpeed) / 2.0 + MouseSpeed) / 10.0;
+  GetMousePos(X, Y);
+  BrakeWindMouse(X, Y, RandomRange(eX-ranX, eX+ranX), RandomRange(eY-ranY,eY+ranY), 8, 5, 10.0 / randSpeed, 15.0 / randSpeed, 10.0 * randSpeed);
+  MouseSpeed := MS;
+end;
+
+//The next function is 100% the work of OllyBest
+function rs_TakeScreen(s: string): Integer;
+var
+  tpa: TPointArray;
+  TIA, TIA2, TIA3: TIntegerArray;
+  w, h: integer;
+  atpa: T2DPointArray;
+begin
+  result := BitmapFromClient(MSX1, MSY1, MSX2, MSY2);
+  setBitmapSize(result, 673, 350);
+  setLength(atpa, 3);
+
+  TPAFromBoxWrap(mmBox, atpa[0]);
+  FilterPointsDist(atpa[0], 0, 76, MMCX, MMCY);
+  TPAFromBoxWrap(IntToBox(MSCX - 13, MSCY - 20, MSCX + 13, MSCY + 20), ATPA[1]);
+  TPAFromTextWrap(s, statchars, w, h, atpa[2]);
+
+  GetColorsWrap(atpa[0], TIA);
+  TIA2 := ColorsFromTPA(ATPA[1], clRed);
+  TIA3 := ColorsFromTPA(ATPA[2], clRed);
+  OffsetTPA(atpa[0], Point(-35, -6));
+  OffsetTPA(atpa[2], Point(2, +336))
+  MergeATPAWrap(ATPA, TPA);
+
+  try
+    fastSetPixels(result, TPA, TIA+TIA2+TIA3);
+  except
+    writeln('rs_TakeScreen: Failed to set pixels, prehaps shutdown reason is too long!');
+  end;
+end;
+
+Function NeedlesInHaystack(Haystack, start, ending: String): TStringArray;
+var
+  i, endPos: integer;
+begin
+  i:= 1;
+  while(i<=length(haystack)) do
+  begin
+    i:= PosEx(start, haystack, i);
+    if(i<=0)then
+      Exit;
+    SetLength(Result, length(result)+1);
+    i:= i
+    endPos:= PosEx(ending, haystack, i+length(start));
+    Result[high(result)]:= Copy(HayStack, i+length(start), endPos - i - Length(ending));
+    i:= endPos + length(ending);
+  end;
+end;
+
+function ReadIniSectionListing: TStringArray;
+var
+  fh, i, j: integer;
+  str: string;
+begin
+  if(SaveFileName = '')then
+  begin
+    SaveFileName:= AppPath + textBoxes[0].Caption + '.ini';
+  end;
+  fh:= OpenFile(SaveFileName, true);
+  if(ReadFileString(fh, str, FileSize(fh)))then
+  begin
+    Result:= NeedlesInHaystack(str, '[', ']');
+  end;
+  CloseFile(fh);
+  for i:=0 to high(result) do
+  begin
+    if(result[i]='Settings')then
+    begin
+      DeleteValueInStrArray(result, i);
+      Dec(i);
+    end else begin
+      for j:=0 to high(MonsterList) do
+      begin
+        if(result[i]=MonsterList[j])then
+        begin
+          DeleteValueInStrArray(result, i);
+          Dec(i);
+          break;
+        end;
+      end;
+    end;
+  end;
+end;
+
+//Read in the values from the Form and set them to the variables the script will use
+procedure SetVariablesFromForm;
+var
+  i: integer;
+begin
+  for i:=0 to high(textBoxes) do
+  begin
+    if(textBoxes[i].Caption='')then
+      textBoxes[i].Caption:= '0';
+  end;
+  PlayerName:= textBoxes[0].Caption;
+  PlayerPassword:= textBoxes[1].Caption;
+  PlayerPin:= textBoxes[2].Caption;
+  HealthToEscape:= StrToInt(textBoxes[3].Caption);
+  HealthToEat:= StrToInt(textBoxes[4].Caption);
+  FoodDTMString:= textBoxes[5].Caption;
+  breakLengthMin:= StrToInt(textBoxes[6].Caption);
+  breakLengthMax:= StrToInt(textBoxes[7].Caption);
+  minutesTillBreakMin:= StrToInt(textBoxes[8].Caption);
+  minutesTillBreakMax:= StrToInt(textBoxes[9].Caption);
+  UltimateSlot:= StrToInt(textBoxes[10].Caption);
+  ThresholdSlot:= StrToInt(textBoxes[11].Caption);
+  MaxPlayers:= StrToInt(textBoxes[12].Caption);
+  FoodQuantity:= StrToInt(textBoxes[13].Caption);
+  TotalXpBar:= comboBoxes[0].ItemIndex + 1;
+  SlayerXpBar:= comboBoxes[1].ItemIndex + 1;
+  ImplementBreaks:= checkBoxes[0].Checked;
+  ImplementAfkBreaks:= checkBoxes[1].Checked;
+  SmartProggy:= checkBoxes[2].Checked;
+  TextProggy:= checkBoxes[3].Checked;
+  DebugSmart:= checkBoxes[4].Checked;
+  DebugObjectFinder:= checkBoxes[5].Checked;
+  DebugText:= checkBoxes[6].Checked;
+  LootEffigies:= checkBoxes[7].Checked;
+  LootSpecialBones:= checkBoxes[8].Checked;
+  LootCharms:= checkBoxes[9].Checked;
+  LootStuff:= checkBoxes[10].CHECKED;
+end;
+
+//The variables that were just set?  Now save them to a file
+procedure SaveForm;
+begin
+  if(SaveFileName = '')then
+  begin
+    SaveFileName:= AppPath + PlayerName + '.ini';
+  end;
+  WriteINI('Settings', 'PlayerName', PlayerName, SaveFileName);
+  WriteINI('Settings', 'PlayerPassword', PlayerPassword, SaveFileName);
+  WriteINI('Settings', 'PlayerPin', PlayerPin, SaveFileName);
+  WriteINI('Settings', 'HealthToRun', IntToStr(HealthToEscape), SaveFileName);
+  WriteINI('Settings', 'HealthToEat', IntToStr(HealthToEat), SaveFileName);
+  WriteINI('Settings', 'FoodString', FoodDTMString, SaveFileName);
+  WriteINI('Settings', 'BreakLengthMin', IntToStr(breakLengthMin), SaveFileName);
+  WriteINI('Settings', 'BreakLengthMax', IntToStr(breakLengthMax), SaveFileName);
+  WriteINI('Settings', 'TimeTillBreakMin', IntToStr(minutesTillBreakMin), SaveFileName);
+  WriteINI('Settings', 'TimeTillBreakMax', IntToStr(minutesTillBreakMax), SaveFileName);
+  WriteINI('Settings', 'ThresholdSlot', IntToStr(ThresholdSlot), SaveFileName);
+  WriteINI('Settings', 'UltimateSlot', IntToStr(UltimateSlot), SaveFileName);
+  WriteINI('Settings', 'MaxPlayers', IntToStr(MaxPlayers), SaveFileName);
+  WriteINI('Settings', 'FoodQuantity', IntToStr(FoodQuantity), SaveFileName);
+  WriteINI('Settings', 'TotalXPBar', IntToStr(TotalXpBar-1), SaveFileName);
+  WriteINI('Settings', 'SlayerXPBar', IntToStr(SlayerXpBar-1), SaveFileName);
+  WriteINI('Settings', 'TextProggy', BoolToStr(TextProggy), SaveFileName);
+  WriteINI('Settings', 'SmartProggy', BoolToStr(SmartProggy), SaveFileName);
+  WriteINI('Settings', 'SmartDebug', BoolToStr(DebugSmart), SaveFileName);
+  WriteINI('Settings', 'ObjectDebug', BoolToStr(DebugObjectFinder), SaveFileName);
+  WriteINI('Settings', 'TextDebug', BoolToStr(DebugText), SaveFileName);
+  WriteINI('Settings', 'ImplementBreaks', BoolToStr(ImplementBreaks), SaveFileName);
+  WriteINI('Settings', 'AFKBreaks', BoolToStr(ImplementAfkBreaks), SaveFileName);
+  WriteINI('Settings', 'LootEffigies', BoolToStr(LootEffigies), SaveFileName);
+  WriteINI('Settings', 'LootSpecialBones', BoolToStr(LootSpecialBones), SaveFileName);
+  WriteINI('Settings', 'LootCharms', BoolToStr(LootCharms), SaveFileName);
+  WriteINI('Settings', 'LootStuff', BoolToStr(LootStuff), SaveFileName);
+  FormSaved:= True;
+end;
+
+//The check if a settings file is already around, and if so, load those settings into our form
+procedure LoadForm(Sender: TObject);
+var
+  equipmentList: TStringArray;
+  i: integer;
+begin
+  SaveFileName:= AppPath + comboBoxes[2].ITEMS[comboBoxes[2].ITEMINDEX];
+  if(not FileExists(SaveFileName))then
+    Exit;
+  monsterQuit.CHECKED:= True;
+  try
+    monsterQuit.CHECKED:= StrToBool(ReadINI(MonsterComboBox.ITEMS[MonsterComboBox.ITEMINDEX], 'QuitOnTask', SaveFileName));
+  except
+    WriteLn('Didn''t read monster specific settings correctly.');
+  end;
+  try
+    textBoxes[0].Caption:= ReadINI('Settings', 'PlayerName', SaveFileName);
+    textBoxes[1].Caption:= ReadINI('Settings', 'PlayerPassword', SaveFileName);
+    textBoxes[2].Caption:= ReadINI('Settings', 'PlayerPin', SaveFileName);
+    textBoxes[3].Caption:= ReadINI('Settings', 'HealthToRun', SaveFileName);
+    textBoxes[4].Caption:= ReadINI('Settings', 'HealthToEat', SaveFileName);
+    textBoxes[5].Caption:= ReadINI('Settings', 'FoodString', SaveFileName);
+    textBoxes[6].Caption:= ReadINI('Settings', 'BreakLengthMin', SaveFileName);
+    textBoxes[7].Caption:= ReadINI('Settings', 'BreakLengthMax', SaveFileName);
+    textBoxes[8].Caption:= ReadINI('Settings', 'TimeTillBreakMin', SaveFileName);
+    textBoxes[9].Caption:= ReadINI('Settings', 'TimeTillBreakMax', SaveFileName);
+    textBoxes[10].Caption:= ReadINI('Settings', 'UltimateSlot', SaveFileName);
+    textBoxes[11].Caption:= ReadINI('Settings', 'ThresholdSlot', SaveFileName);
+    textBoxes[12].Caption:= ReadINI('Settings', 'MaxPlayers', SaveFileName);
+    textBoxes[13].Caption:= ReadINI('Settings', 'FoodQuantity', SaveFileName);
+    comboBoxes[0].ItemIndex:= StrToInt(ReadINI('Settings', 'TotalXPBar', SaveFileName));
+    comboBoxes[1].ItemIndex:= StrToInt(ReadINI('Settings', 'SlayerXPBar', SaveFileName));
+    checkBoxes[0].Checked:= StrToBool(ReadINI('Settings', 'ImplementBreaks', SaveFileName));
+    checkBoxes[1].Checked:= StrToBool(ReadINI('Settings', 'AFKBreaks', SaveFileName));
+    checkBoxes[2].Checked:= StrToBool(ReadINI('Settings', 'SmartProggy', SaveFileName));
+    checkBoxes[3].Checked:= StrToBool(ReadINI('Settings', 'TextProggy', SaveFileName));
+    checkBoxes[4].Checked:= StrToBool(ReadINI('Settings', 'SmartDebug', SaveFileName));
+    checkBoxes[5].Checked:= StrToBool(ReadINI('Settings', 'ObjectDebug', SaveFileName));
+    checkBoxes[6].Checked:= StrToBool(ReadINI('Settings', 'TextDebug', SaveFileName));
+    checkBoxes[7].Checked:= StrToBool(ReadINI('Settings', 'LootEffigies', SaveFileName));
+    checkBoxes[8].Checked:= StrToBool(ReadINI('Settings', 'LootSpecialBones', SaveFileName));
+    checkBoxes[9].Checked:= StrToBool(ReadINI('Settings', 'LootCharms', SaveFileName));
+    checkBoxes[10].Checked:= StrToBool(ReadINI('Settings', 'LootStuff', SaveFileName));
+  except
+    WriteLn('The file you chose to load has an error in it!');
+  end;
+  try//Now load the equipment boxes....
+    EquipmentList:= ReadIniSectionListing;
+    WriteLn(EquipmentList);
+    for i:=0 to high(EquipmentList) do
+    begin
+      equipmentComboBox.Items.Add(EquipmentList[i]);
+    end;
+  except
+  end;
+end;
+
+//Change the visibility of break related settings.
+procedure ChangeBreaks(Sender: TObject);
+var
+  i: integer;
+begin
+  checkBoxes[1].Visible:= checkBoxes[0].CHECKED;
+  for i:=6 to 9 do
+  begin
+    labels[i].Visible:= checkBoxes[0].CHECKED;
+    textBoxes[i].Visible:= checkBoxes[0].CHECKED;
+  end;
+end;
+
+procedure LootItemsChange(Sender: TObject);
+begin
+  checkBoxes[7].Visible:= checkBoxes[10].CHECKED;
+  checkBoxes[8].Visible:= checkBoxes[10].CHECKED;
+  checkBoxes[9].Visible:= checkBoxes[10].CHECKED;
+end;
+
+Function CheckSaveFileName: boolean;
+begin
+  Result:= True;
+  if(SaveFileName = '')then
+  begin
+    if(textBoxes[0].Caption = '')then
+    begin
+      WriteLn('Please enter a player name first!');
+      Result:= False;
+      Exit;
+    end;
+  end;
+  SaveFileName:= AppPath + textBoxes[0].Caption + '.ini';
+end;
+
+procedure LoadNewEquipment(Sender: TObject);
+begin
+  if(not CheckSaveFileName)then
+    Exit;
+  try
+    EquipmentName.Caption:= equipmentComboBox.ITEMS[equipmentComboBox.ITEMINDEX];
+    EquipmentDTMStrings[0].CAPTION:= ReadINI(EquipmentName.Caption, 'HelmetDTM', SaveFileName);
+    EquipmentDTMStrings[1].CAPTION:= ReadINI(EquipmentName.Caption, 'ChestDTM', SaveFileName);
+    EquipmentDTMStrings[2].CAPTION:= ReadINI(EquipmentName.Caption, 'GlovesDTM', SaveFileName);
+    EquipmentDTMStrings[3].CAPTION:= ReadINI(EquipmentName.Caption, 'LegsDTM', SaveFileName);
+    EquipmentDTMStrings[4].CAPTION:= ReadINI(EquipmentName.Caption, 'BootsDTM', SaveFileName);
+    EquipmentDTMStrings[5].CAPTION:= ReadINI(EquipmentName.Caption, 'WeaponDTM', SaveFileName);
+    EquipmentDTMStrings[6].CAPTION:= ReadINI(EquipmentName.Caption, 'ShieldDTM', SaveFileName);
+    EquipmentDTMStrings[7].CAPTION:= ReadINI(EquipmentName.Caption, 'CapeDTM', SaveFileName);
+    EquipmentDTMStrings[8].CAPTION:= ReadINI(EquipmentName.Caption, 'AmuletDTM', SaveFileName);
+    EquipmentDTMStrings[9].CAPTION:= ReadINI(EquipmentName.Caption, 'RingDTM', SaveFileName);
+    EquipmentNames[0].CAPTION:= ReadINI(EquipmentName.Caption, 'HelmetName', SaveFileName);
+    EquipmentNames[1].CAPTION:= ReadINI(EquipmentName.Caption, 'ChestName', SaveFileName);
+    EquipmentNames[2].CAPTION:= ReadINI(EquipmentName.Caption, 'GlovesName', SaveFileName);
+    EquipmentNames[3].CAPTION:= ReadINI(EquipmentName.Caption, 'LegsName', SaveFileName);
+    EquipmentNames[4].CAPTION:= ReadINI(EquipmentName.Caption, 'BootsName', SaveFileName);
+    EquipmentNames[5].CAPTION:= ReadINI(EquipmentName.Caption, 'WeaponName', SaveFileName);
+    EquipmentNames[6].CAPTION:= ReadINI(EquipmentName.Caption, 'ShieldName', SaveFileName);
+    EquipmentNames[7].CAPTION:= ReadINI(EquipmentName.Caption, 'CapeName', SaveFileName);
+    EquipmentNames[8].CAPTION:= ReadINI(EquipmentName.Caption, 'AmuletName', SaveFileName);
+    EquipmentNames[9].CAPTION:= ReadINI(EquipmentName.Caption, 'RingName', SaveFileName);
+  except
+    Writeln('Failed to completely load the ' + EquipmentName.Caption + ' settings for your player.');
+  end;
+end;
+
+procedure OnSaveMonster(Sender: TObject);
+begin
+  if(EquipmentName.Caption='N\A')then
+  begin
+    WriteLn('Please set a name for your equipment settings!');
+    Exit;
+  end;
+  if(not CheckSaveFileName)then
+    Exit;
+  WriteINI(MonsterComboBox.ITEMS[MonsterComboBox.ITEMINDEX], 'QuitOnTask', BoolToStr(monsterQuit.CHECKED), SaveFileName);
+  WriteINI(MonsterComboBox.ITEMS[MonsterComboBox.ITEMINDEX], 'EquipmentSetting', EquipmentName.Caption, SaveFileName);
+end;
+
+procedure OnEquipmentSave(Sender: TObject);
+begin
+  if(EquipmentName.Caption='N\A')then
+  begin
+    WriteLn('Please set a name for your equipment settings!');
+    Exit;
+  end;
+  if(not CheckSaveFileName)then
+    Exit;
+  WriteINI(EquipmentName.Caption, 'HelmetDTM', EquipmentDTMStrings[0].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'ChestDTM', EquipmentDTMStrings[1].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'GlovesDTM', EquipmentDTMStrings[2].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'LegsDTM', EquipmentDTMStrings[3].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'BootsDTM', EquipmentDTMStrings[4].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'WeaponDTM', EquipmentDTMStrings[5].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'ShieldDTM', EquipmentDTMStrings[6].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'CapeDTM', EquipmentDTMStrings[7].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'AmuletDTM', EquipmentDTMStrings[8].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'RingDTM', EquipmentDTMStrings[9].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'HelmetName', EquipmentNames[0].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'ChestName', EquipmentNames[1].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'GlovesName', EquipmentNames[2].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'LegsName', EquipmentNames[3].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'BootsName', EquipmentNames[4].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'WeaponName', EquipmentNames[5].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'ShieldName', EquipmentNames[6].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'CapeName', EquipmentNames[7].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'AmuletName', EquipmentNames[8].CAPTION, SaveFileName);
+  WriteINI(EquipmentName.Caption, 'RingName', EquipmentNames[9].CAPTION, SaveFileName);
+end;
+
+procedure LoadNewMonster(Sender: TObject);
+var
+  i: integer;
+begin
+  if(not CheckSaveFileName)then
+    Exit;
+  monsterQuit.CHECKED:= True;
+  try
+    monsterQuit.CHECKED:= StrToBool(ReadINI(MonsterComboBox.ITEMS[MonsterComboBox.ITEMINDEX], 'QuitOnTask', SaveFileName));
+    EquipmentName.Caption:=  ReadINI(MonsterComboBox.ITEMS[MonsterComboBox.ITEMINDEX], 'EquipmentSetting', SaveFileName);
+    for i:=0 to high(EquipmentComboBox.ITEMS) do
+    begin
+      if(EquipmentComboBox.ITEMS[i]=EquipmentName.Caption)then
+      begin
+        EquipmentComboBox.ITEMINDEX:= i;
+        break;
+      end;
+    end;
+    equipmentComboBox.ITEMS[equipmentComboBox.ITEMINDEX]
+    LoadNewEquipment(Sender);
+  except
+    WriteLn('Didn''t read monster specific settings correctly.');
+  end;
+end;
+
+//Finish up the form related information and save it to a file when the button is clicked
+procedure OnButtonClick(Sender: TObject);
+begin
+  settingsForm.MODALRESULT:= mrOk;
+  SetVariablesFromForm;
+  OnEquipmentSave(Sender);
+  OnSaveMonster(Sender);
+  SaveForm;
+end;
+
+//Initialise the form and all its little buttons and fun stuff
+procedure InitialiseForm;
+var
+  i: integer;
+  files: TStringArray;
+begin
+  settingsForm:= CreateForm;
+  settingsForm.Width:= 475;
+  settingsForm.Height:= 625;
+  settingsForm.Caption:= 'Slaying Kuradal Settings';
+  settingsForm.Color := ClWhite;
+  settingsForm.Font.Color := ClBlack;
+  settingsForm.Font.Size := 8;
+
+  //Inintialization
+  for i:=0 to high(labels) do
+  begin
+    case i of
+      0..high(comboBoxes):begin comboBoxes[i]:= TComboBox.Create(settingsForm); comboBoxes[i].Parent:= settingsForm; end;
+    end;
+    case i of
+      0..high(checkBoxes):begin checkBoxes[i]:= TCheckBox.Create(settingsForm); checkBoxes[i].Parent:= settingsForm; end;
+    end;
+    case i of
+      0..high(labels):begin labels[i]:= TLabel.Create(settingsForm); labels[i].Parent:= settingsForm; labels[i].FONT.Size:= 10; end;
+    end;
+    case i of
+      0..high(textBoxes):begin textBoxes[i]:= TEdit.Create(settingsForm); textBoxes[i].Parent:= settingsForm; textBoxes[i].Caption:= '0'; end;
+    end;
+    case i of
+      0..high(EquipmentNames):begin EquipmentNames[i]:= TEdit.Create(settingsForm); EquipmentNames[i].Parent:= settingsForm; EquipmentNames[i].Caption:= '0'; end;
+    end;
+    case i of
+      0..high(EquipmentDTMStrings):begin EquipmentDTMStrings[i]:= TEdit.Create(settingsForm); EquipmentDTMStrings[i].Parent:= settingsForm; EquipmentDTMStrings[i].Caption:= '0'; end;
+    end;
+    case i of
+      0..high(EquipmentLabels):begin EquipmentLabels[i]:= TLabel.Create(settingsForm); EquipmentLabels[i].Parent:= settingsForm; end;
+    end;
+  end;
+  monsterQuit:= TCheckBox.Create(settingsForm); 
+  monsterQuit.Parent:= settingsForm;
+  monsterComboBox:= TComboBox.Create(settingsForm);
+  monsterComboBox.Parent:= settingsForm;
+  EquipmentName:= TEdit.Create(settingsForm);
+  EquipmentName.Parent:= settingsForm;
+  saveButton:= TButton.Create(settingsForm);
+  saveButton.Parent:= settingsForm;
+  saveEquipment:= TButton.Create(settingsForm);
+  saveEquipment.Parent:= settingsForm;
+  SaveMonster:= TButton.Create(settingsForm);
+  SaveMonster.Parent:= settingsForm;
+  equipmentComboBox:= TComboBox.Create(settingsForm);
+  equipmentComboBox.Parent:= settingsForm;
+  EquipmentTitleLabel:= TLabel.Create(settingsForm);
+  EquipmentTitleLabel.Parent:= settingsForm;
+  MonsterTitleLabel:= TLabel.Create(settingsForm);
+  MonsterTitleLabel.Parent:= settingsForm;
+  EquipmentNameLabel:= TLabel.Create(settingsForm);
+  EquipmentNameLabel.Parent:= settingsForm;
+  EquipmentDTMLabel:= TLabel.Create(settingsForm);
+  EquipmentDTMLabel.Parent:= settingsForm;
+  
+  //Login setup
+  for i:=0 to 2 do
+  begin
+    labels[i].Left:= 5;
+    labels[i].top:= 10+25*i;
+    textBoxes[i].Left:= 65;
+    textBoxes[i].Top:= 10+25*i;
+  end;
+  labels[0].Caption:= 'Username';
+  labels[1].Caption:= 'Password';
+  labels[2].Caption:= 'Pin';
+
+  //Looting options
+  checkBoxes[10].Left:= 5;
+  checkBoxes[10].Top:= 86;
+  checkBoxes[10].Caption:= 'Loot Items';
+  checkBoxes[10].ONCLICK:= @LootItemsChange;
+  checkBoxes[10].CHECKED:= True;
+  checkBoxes[7].Left:= 90;
+  checkBoxes[7].Top:= 85;
+  checkBoxes[7].Caption:= 'Loot Effigies';
+  checkBoxes[8].Left:= 180;
+  checkBoxes[8].Top:= 85;
+  checkBoxes[8].Caption:= 'Loot Special Bones';
+  checkBoxes[9].Left:= 300;
+  checkBoxes[9].Top:= 85;
+  checkBoxes[9].Caption:= 'Loot Charms';
+
+  //Max players in area.
+  labels[15].Left:= 5;
+  labels[15].Top:= 110;
+  labels[15].Caption:= 'Max Players:';
+  textBoxes[12].Left:= 95;
+  textBoxes[12].Top:= 110;
+  textBoxes[12].Width:= 30;
+
+  //Survival settings
+  for i:=3 to 5 do
+  begin
+    labels[i].Left:= 5;
+    labels[i].top:= 65+25*i;
+    textBoxes[i].Left:= 95;
+    textBoxes[i].Top:= 65+25*i;
+  end;
+  labels[3].Caption:= 'Health to Run';
+  labels[4].Caption:= 'Health to Eat';
+  labels[5].Caption:= 'Food String';
+  textBoxes[5].Width:= 240;
+  textBoxes[5].Caption:= 'mlwAAAHicY2dgYHjMzMDwCYhvAvFnIH7FDBG7AcSJjAwM6UBcDMQFQJwDxBlAnArE4U6GQN1MWDEXA0UAAOTOCi4=';
+  labels[16].Left:= 5;
+  labels[16].Top:= 215;
+  labels[16].Caption:= 'Food Quantity';
+  textBoxes[13].Width:= 30;
+  textBoxes[13].Left:= 95;
+  textBoxes[13].Top:= 215;
+  textBoxes[13].Caption:= '10';
+  textBoxes[11].Left:= 110;
+  textBoxes[11].Top:= 265;
+  textBoxes[11].Width:= 30;
+
+  //continue from here
+  //Breaking settings
+  checkBoxes[0].CAPTION:= 'Implement Breaks';
+  checkBoxes[0].Left:= 345;
+  checkBoxes[0].Top:= 115;
+  checkBoxes[0].CHECKED:= True;
+  checkBoxes[0].ONCLICK:= @ChangeBreaks;
+  checkBoxes[1].CAPTION:= 'AFK Breaks';
+  checkBoxes[1].Left:= 255;
+  checkBoxes[1].Top:= 115;
+  for i:=6 to 8 do
+  begin
+    labels[i].Left:= 180;
+    labels[i].Top:= 25*i-10;
+  end;
+  textBoxes[6].Left:= 265;
+  textBoxes[6].Top:= 140;
+  textBoxes[7].Left:= 355;
+  textBoxes[7].Top:= 140;
+  textBoxes[8].Left:= 265;
+  textBoxes[8].Top:= 165;
+  textBoxes[9].Left:= 355;
+  textBoxes[9].Top:= 165;
+  labels[6].Caption:= 'Break length';
+  labels[7].Caption:= 'Time till break';
+  labels[8].Left:= 347;
+  labels[8].Top:= 140;
+  labels[8].CAPTION:= '-';
+  labels[9].Left:= 347;
+  labels[9].Top:= 165;
+  labels[9].CAPTION:= '-';
+
+  //Progress Report options
+  checkBoxes[2].Left:= 310;
+  checkBoxes[2].Top:= 35;
+  checkBoxes[2].Caption:= 'On Screen Proggy';
+  checkBoxes[3].Left:= 310;
+  checkBoxes[3].Top:= 10;
+  checkBoxes[3].Caption:= 'Text Proggy';
+
+  //XP Bar settings
+  labels[10].Left:= 165;
+  labels[10].Top:= 10;
+  labels[10].Caption:= 'Total XP Bar';
+  comboBoxes[0].Left:= 255;
+  comboBoxes[0].Top:= 10;
+  comboBoxes[0].Width:= 30;
+  comboBoxes[0].Style:= csDropDownList;
+  comboBoxes[0].Items.Add('1');
+  comboBoxes[0].Items.Add('2');
+  comboBoxes[0].Items.Add('3');
+  comboBoxes[0].ItemIndex:= 0;
+  labels[11].Left:= 165;
+  labels[11].Top:= 35;
+  labels[11].CAPTION:= 'Slayer XP Bar';
+  comboBoxes[1].Left:= 255;
+  comboBoxes[1].Top:= 35;
+  comboBoxes[1].Width:= 30;
+  comboBoxes[1].Style:= csDropDownList;
+  comboBoxes[1].Items.Add('1');
+  comboBoxes[1].Items.Add('2');
+  comboBoxes[1].Items.Add('3');
+  comboBoxes[1].ItemIndex:= 0;
+
+  //Debug options
+  checkBoxes[4].Left:= 165;
+  checkBoxes[4].Top:= 60;
+  checkBoxes[4].Caption:= 'SMART Debug';
+  checkBoxes[5].Left:= 265;
+  checkBoxes[5].Top:= 60;
+  checkBoxes[5].Caption:= 'Object Debug';
+  checkBoxes[6].Left:= 360;
+  checkBoxes[6].Top:= 60;
+  checkBoxes[6].Caption:= 'Text Debug';
+  
+  //Specialized abilities
+  labels[12].Left:= 155;
+  labels[12].Top:= 215;
+  labels[12].CAPTION:= 'Ultimate Slot[1-12]';
+  textBoxes[10].Left:= 265;
+  textBoxes[10].Top:= 215;
+  textBoxes[10].Width:= 30;
+  labels[13].Left:= 320;
+  labels[13].Top:= 215;
+  labels[13].CAPTION:= 'Threshold Slot';
+  textBoxes[11].Left:= 410;
+  textBoxes[11].Top:= 215;
+  textBoxes[11].Width:= 30;
+
+  //Individualized Monster Settings
+  MonsterTitleLabel.Left:= 5;
+  MonsterTitleLabel.Top:= 240;
+  MonsterTitleLabel.Caption:= 'Monster: ';
+  monsterComboBox.Left:= 75;
+  monsterComboBox.Top:= 240;
+  monsterComboBox.Width:= 125;
+  monsterComboBox.Style:= csDropDownList;
+  for i:=0 to high(MonsterList) do
+  begin
+    monsterComboBox.Items.Add(MonsterList[i]);
+  end;
+  monsterComboBox.ItemIndex:= 0;
+  monsterComboBox.ONCHANGE:= @LoadNewMonster;
+  monsterQuit.Left:= 205;
+  monsterQuit.Top:= 240;
+  monsterQuit.CAPTION:= 'Quit on Task';
+  EquipmentTitleLabel.Left:= 5;
+  EquipmentTitleLabel.Top:= 265;
+  EquipmentTitleLabel.Caption:= 'Equipment: ';
+  equipmentComboBox.Left:= 75;
+  equipmentComboBox.Top:= 265;
+  equipmentComboBox.Width:= 125;
+  equipmentComboBox.Style:= csDropDownList;
+  equipmentComboBox.ONCHANGE:= @LoadNewEquipment;
+  EquipmentName.Left:= 205;
+  EquipmentName.Top:= 265;
+  EquipmentName.Caption:= 'N\A';
+  EquipmentName.Width:= 85;
+  SaveMonster.Left:= 300;
+  SaveMonster.Top:= 240;
+  SaveMonster.Caption:= 'Save Monster';
+  SaveMonster.Width:= 95;
+  SaveMonster.ONCLICK:= @OnSaveMonster;
+  SaveEquipment.Left:= 300;
+  SaveEquipment.Top:= 265;
+  SaveEquipment.Caption:= 'Save Equipment';
+  SaveEquipment.Width:= 100;
+  SaveEquipment.OnClick:= @OnEquipmentSave;
+  EquipmentNameLabel.Left:= 90;
+  EquipmentNameLabel.Top:= 290;
+  EquipmentNameLabel.Caption:= 'Text Name';
+  EquipmentDTMLabel.Left:= 275;
+  EquipmentDTMLabel.Top:= 290;
+  EquipmentDTMLabel.Caption:= 'DTM';
+  for i:=0 to high(EquipmentLabels) do
+  begin
+    EquipmentLabels[i].Left:= 5;
+    EquipmentLabels[i].Top:= 315+i*25;
+    EquipmentNames[i].Left:= 60;
+    EquipmentNames[i].Top:= 315+i*25;
+    EquipmentNames[i].Width:= 130;
+    EquipmentDTMStrings[i].Left:= 200;
+    EquipmentDTMStrings[i].Top:= 315+i*25;
+    EquipmentDTMStrings[i].Width:= 200;
+  end;
+  EquipmentLabels[0].Caption:= 'Helmet: ';
+  EquipmentLabels[1].Caption:= 'Chest: ';
+  EquipmentLabels[2].Caption:= 'Gloves';
+  EquipmentLabels[3].Caption:= 'Legs';
+  EquipmentLabels[4].Caption:= 'Boots';
+  EquipmentLabels[5].Caption:= 'Weapon';
+  EquipmentLabels[6].Caption:= 'Shield';
+  EquipmentLabels[7].Caption:= 'Cape';
+  EquipmentLabels[8].Caption:= 'Amulet';
+  EquipmentLabels[9].Caption:= 'Ring';
+  
+  //Which file to load
+  labels[14].Left:= 105;
+  labels[14].Top:= 565;
+  labels[14].Caption:= 'Load file: ';
+  comboBoxes[2].Left:= 165;
+  comboBoxes[2].Top:= 565;
+  comboBoxes[2].Width:= 150;
+  comboBoxes[2].Style:= csDropDownList;
+  files:= GetFiles(AppPath, 'ini');
+  for i:=0 to high(files) do
+  begin
+    comboBoxes[2].Items.Add(files[i]);
+  end;
+  comboBoxes[2].ONCHANGE:= @LoadForm;
+
+  //Save button
+  saveButton.Left:= 180;
+  saveButton.Top:= 600;
+  saveButton.Caption:= 'Start!';
+  saveButton.OnClick:= @OnButtonClick;
+end;
+
+//Show that form to the user!
+procedure ShowModal;
+begin
+  settingsForm.ShowModal;
+end;
+
+function StringMatch(checkCompare, goalCompare: string): Extended;
+var
+  mismatch, len: extended;
+begin
+  if((length(checkCompare)=0) or (length(goalCompare)=0))then
+    Exit;
+  mismatch:= LevDistance(checkCompare, goalCompare);
+  len:= Max(length(checkCompare), length(goalCompare));
+  Result:= (len-mismatch) / len;
+end;
+
+function IsUpTextAcc(upText: String; desiredAcc: extended): boolean;
+var
+  position: integer;
+  actual: String;
+begin
+  actual:= GetUpText;
+  position:= Pos(' / ', actual);
+  if(position > 1)then
+    SetLength(actual, position-1);
+  result:= (StringMatch(upText, actual) >= desiredAcc);
+end;
+
+function WaitUpTextAcc(UpText: String; acc: Extended; Time: integer): boolean;
+var
+  t: integer;
+begin
+  T:= GetSystemTime + Time;
+  while(GetSystemTime < T) do
+  begin
+    if (IsUpTextAcc(UpText, acc)) then
+    begin
+      Result := True;
+      Exit;
+    end;
+    Wait(20 + Random(20));
+  end;
+end;
+
+function ChooseOptionAcc(text: String; acc: Extended): boolean;
+var
+  i, optionsLen: integer;
+  options: array of TOptions;
+  box: TBox;
+begin
+  repeat
+    options:= GetChooseOptions('');
+    optionsLen:= high(options);
+  until((GetSystemTime > i) or (optionsLen > 0));
+  if(optionsLen=0)then
+    Exit;
+  for i:= 0 to optionsLen do
+  begin
+    if(StringMatch(text, options[i].str) >= 0.7)then
+    begin
+      box:= options[i].Bounds;
+      MouseBox(box.x1, box.y1, box.X2, box.Y2, mouse_Left);
+      Result:= True;
+    end;
+  end;
+end;
+
+function WaitOptionAcc(text: String; acc: Extended; time: integer): boolean;
+var
+  t: integer;
+begin
+  T:= GetSystemTime + Time;
+  while(GetSystemTime < T) do
+  begin
+    if (ChooseOptionAcc(text, acc)) then
+    begin
+      Result := True;
+      Exit;
+    end;
+    Wait(20 + Random(20));
+  end;
+end;
+
+procedure CastSpell(SpellType, SpellRow, SpellCol: integer);
+var
+  box: TBox;
+  timer: integer;
+begin
+  repeat
+    wait(RandomRange(80,130));
+  until(GameTab(tab_magic));
+  SetAbilityBook(SpellType);
+  MouseBox(box.x1, box.y1, box.x2, box.Y2, mouse_left);
+  timer:=GetSystemTime+2000;
+  repeat
+    wait(randomrange(50,100));
+  until((CountColorTolerance(16562716, box.x1, box.y1, box.x2, box.Y2, 10)> 25) or (GetSystemTime>timer));
+  case SpellCol of
+    1:begin
+      box.X1:= 555;
+      box.X2:= 588;
+    end;
+    2:begin
+      box.X1:= 601;
+      box.X2:= 634;
+    end;
+    3:begin
+      box.X1:= 648;
+      box.X2:= 681;
+    end;
+    4:begin
+      box.X1:= 695;
+      box.X2:= 728;
+    end;
+  end;
+  case SpellRow of
+    1:begin
+      box.Y1:= 292;
+      box.Y2:= 319;
+    end;
+    2:begin
+      box.Y1:= 327;
+      box.Y2:= 353;
+    end;
+    3:begin
+      box.Y1:= 364;
+      box.Y2:= 389;
+    end;
+    4:begin
+      box.Y1:= 400;
+      box.Y2:= 426;
+    end;
+  end;
+  MouseBox(box.x1, box.y1, box.x2, box.Y2, mouse_left);
+end;
+
+//This is at least some level of Shatterhand's logic.  Maybe even mostly.
+function FindRedBar(var x, y: integer): Boolean;
+begin
+  Result := False;
+  if FindDTM(RedBarDTM,x,y,MSX1,MSY1,MSX2,MSY2A) then
+  begin
+    Result := True;
+    if(DebugSmart)then
+    begin
+      SMART_DrawBoxEx(false,false,IntToBox(X-30,Y-10,X+30,Y+10),ClYellow);
+//      SMART_DrawDot(false, Point(x+lootOffsetX, y+lootOffsetY), clRed);
+      Wait(100);
+      SMART_ClearCanvasArea(IntToBox(X-30,Y-10+50,X+30,Y+10+50));
+    end;
+  end;
+end;
+
+//Basically, are we actually in a fight, and not just in a fight stance?
+function HasTargetBar : Boolean;
+var
+  x, y: integer;
+begin
+  FTab(tab_Combat);
+  Result:= not FindDTM(inFightDTM, x, y, 700, 222, 737, 306);//This is the DTM of a blank weakness.  It's the most accurate fight detector I've found.
+end;
+
+//What's our current health?  This is here just to simplify the GetMMLevels call all the time
+function CurrentHealth: integer;
+var
+  chat: string;
+begin
+  Result:= GetMMLevels('hp', chat);
+end;
+
+//this is by ashaman.  
+Function GetMaxHP: Integer;
+Var
+  Text: String;
+  B, BigBox: TBox;
+  TPA : TPointArray;
+  ATPA : T2DPointArray;
+  I,cts: Integer;
+  BoxColors: TIntegerArray;
+Begin
+  Gametab(Tab_Combat);
+  MouseBox(650,394-50,682,401-50, mouse_move);
+  Wait(RandomRange(500,700));
+  B := IntToBox(594, 365-50, 694, 394-50);
+  cts := GetColorToleranceSpeed;
+  ColorToleranceSpeed(1);
+  //            Black
+  BoxColors := [1774603];
+  SetLength(ATPA, Length(BoxColors));
+  for i := 0 to High(BoxColors) do
+    FindColorsTolerance(ATPA[i], BoxColors[i], B.X1, B.Y1, B.X2, B.Y2, 0);
+  TPA := MergeATPA(ATPA);
+  If Length(TPA) < 10 Then
+  begin
+    Writeln('Not enough colors');
+    ColorToleranceSpeed(cts);
+    Exit;
+  end;
+
+  ATPA := SplitTPA(TPA, 4);
+  For i := 0 to High(ATPA) do
+  begin
+    B := GetTPABounds(ATPA[i]);
+    if ((B.x2-B.x1) > 4) and ((B.y2-B.y1) > 4) then
+      Break
+    else
+      B := IntToBox(0, 0, 0, 0);
+  end;
+
+  If (B.x2 = 0) then
+  begin
+    ColorToleranceSpeed(cts);
+    Exit;
+  end;
+
+  BigBox := B;
+
+  Text:= GetTextAtExWrap(BigBox.X1, BigBox.Y1, BigBox.X2, BigBox.Y2, 0, 5, 2, 3111603, 10, 'UpChars');
+  Text:= Copy(Text, 0, High(Text)-1);
+  If (StrToIntDef(Text, 0)=100) Then
+    Result:= CurrentHealth
+  Else
+    Result:= (CurrentHealth*100)/(StrToIntDef(Text, 0));
+End;
+
+//Did we gain slayer xp recently?  If so, that's a failsafe check meaning we killed something
+function GainedSlayerXp: boolean;
+var
+  curSlayXp: integer;
+begin
+  curSlayXp:= GetXPBar(SlayerXpBar) - StartingSlayerXp;
+  if(curSlayXp = CurrentSlayerXp)then
+    Exit;
+  CurrentSlayerXp:= curSlayXp;
+  Result:= True;
+  currentTargetsLeft:=currentTargetsLeft-1;
+end;
+
+//Check our current level and experience to next level of whatever skill
+function GetLevel(Skill: Variant; var ExpLeft: integer): integer;
+begin
+  ExpLeft:= XpTillNextLevel(Skill);
+  Result:= GetSkillInfo(Skill, True);
+end;
+
+//Are we within some square on the sps map?
+function SPS_InArea(curPt, tlPt, brPt: TPoint): boolean;
+begin
+  if((curPt.x > tlPt.x) and (curPt.x < brPt.x))then
+    if((curPt.y > tlPt.y) and (curPt.y < brPt.y))then
+      Result:= True;
+end;
+
+//Are we within some square on the sps map?
+function SPS_InBox(curPt: TPoint; tarBox: TBox): boolean;
+begin
+  Result:= SPS_InArea(curPt, Point(tarBox.X1, tarBox.Y1), Point(tarBox.X2, tarBox.Y2));
+end;
+
+//Is the current character a number?  This is used by the next function to split
+//2 sets of numbers out of 1 string, which extractFromString can not do :(
+//Thanks to Mr. Cynic for helping me with the discovery that PS CAN handle ASCII based comparisons
+function IsNum(str: string): boolean;
+var
+  i: integer;
+begin
+  if (length(str)=0) then
+  begin
+    Exit;
+  end;
+  Result:=true;
+  for i:=1 to length(str) do
+    if (not((str[i]>='0') and (str[i]<='9'))) then
+    begin
+      Result:=false;
+      Exit;
+    end;
+end;
+
+function IsAlpha(str: string): boolean;
+var
+  i: integer;
+begin
+  if (length(str)=0) then
+  begin
+    Exit;
+  end;
+  Result:=true;
+  for i:=1 to length(str) do
+    if (not(((str[i]>='a') and (str[i]<='z')) or ((str[i]>='A') and (str[i]<='Z')))) then
+    begin
+      Result:=false;
+      Exit;
+    end;
+end;
+
+//Free all our DTMs and BMPs
+procedure FreeMyDTMs;
+begin
+  if(teleTabDTM > 0)then
+    FreeDTM(teleTabDTM);
+  if(foodDTM > 0)then
+    FreeDTM(foodDTM);
+  if(inFightDTM > 0)then
+    FreeDTM(inFightDTM);
+  if(gemDTM > 0)then
+    FreeDTM(gemDTM);
+  if(RedBarDTM > 0)then
+    FreeDTM(RedBarDTM);
+  if(HelmetDTM > 0)then
+    FreeDTM(HelmetDTM);
+  if(CapeDTM > 0)then
+    FreeDTM(CapeDTM);
+  if(AmuletDTM > 0)then
+    FreeDTM(AmuletDTM);
+  if(WeaponDTM > 0)then
+    FreeDTM(WeaponDTM);
+  if(ChestDTM > 0)then
+    FreeDTM(ChestDTM);
+  if(ShieldDTM > 0)then
+    FreeDTM(ShieldDTM);
+  if(LegsDTM > 0)then
+    FreeDTM(LegsDTM);
+  if(GlovesDTM > 0)then
+    FreeDTM(GlovesDTM);
+  if(BootsDTM > 0)then
+    FreeDTM(BootsDTM);
+  if(RingDTM > 0)then
+    FreeDTM(RingDTM);
+  if(ProggyBmp > 0)then
+    FreeBitmap(ProggyBmp);
+end;
+
+//Do our basic login stuff that we do every time we need to login again.
+function LoginSetup: boolean;
+begin
+  if(LoggedIn)then
+  begin
+    Result:= True;
+  end else if(loginPlayer)then
+  begin
+    repeat
+      wait(2500);
+    until(RsReady);
+    ToggleMoneyPouch(False);
+    ToggleXPBar(True);
+    ClickNorth(SRL_ANGLE_HIGH);
+    ToggleActionBar(True);
+    SetAllChats('On', 'Off', 'Off', 'Off', 'Off', 'Off', 'Off');
+    FindNormalRandoms;
+    Result:= True;
+  end;
+end;
+
+//Custom failure method.  If something fails, log our issue, screenshot it, write out debug messages, logout, and THEN end the script.
+procedure FailOutOfCode(message: String);
+var
+  bmp, x: integer;
+  path, name: string;
+begin
+  If(not (LoggedIn)) then
+  begin
+    LoginSetup;
+  end else
+  begin
+    Disguise('Stopped');
+    WriteLn(message);
+    if (not(loggedIn)) then
+    begin
+      TerminateScript;
+      Exit;
+    end;
+    //The next small section is also taken from Olly's setup for calling his take screenshot function.
+    path := AppPath + 'Scripts\KevinsSlayerTower\';
+    name := Path + 'Shutdown - '+ TheDate(Date_Day)+ ' ';
+    bmp := rs_TakeScreen(message);
+    if FileExists(name + ' [' + ToStr(x) +']' + '.png') then
+      while FileExists(name + ' [' + ToStr(x) + ']' + '.png') do
+        Inc(x);
+    try
+      SaveBitmap(bmp, name + ' [' + ToStr(x) + ']' + '.png');
+    except
+      writeln('rs_TakeScreenshot: Failed saving screenshot');
+    finally
+      FreeBitmap(bmp);
+    end;
+    //End of Olly's work
+    //Logout;
+    TerminateScript;
+  end;
+end;
+
+//Mini break!  Based on custom breaking settings, will either simulate afking from play, or just logging out for a little while.
+procedure MiniBreak;
+var
+  timeStarted: integer;
+begin
+  RunSmartDebug('MiniBreak');
+  if(BreakLength > 0)then
+  begin
+    if(not ImplementAfkBreaks)then
+    begin
+      logout;
+    end else
+    begin
+      BrakeMMouse(-50, -50, 0, 0);
+    end;
+    MarkTime(timeStarted);
+    repeat
+      SMART_DrawTextEx(True, 12, 250, LoginChars, ('Time Remaining: ' + MsToTime((TimeFromMark(timeStarted) - BreakLength), Time_Bare)), 13158600);
+      wait(1000);
+    until(TimeFromMark(timeStarted) > BreakLength);
+  end;
+  TimeToBreak:= GetSystemTime + (RandomRange(minutesTillBreakMin, minutesTillBreakMax) * 60000);
+  BreakLength:= (RandomRange(BreakLengthMin, BreakLengthMax) * 60000);
+  SMART_ClearCanvasArea(IntToBox(MSX1, MSY1, MSX2, MSY2));
+  LoginSetup;
+end;
+
+//99% work/idea of Flight for refreshing SMART.  The ONLY thing I changed was to call my LoginSetup instead of throwing the little setup he had in place.
+Procedure NewSmart;
+var
+  Trash: TVariantArray;
+  Refresh: Integer;
+begin
+  FreeSRL;
+  Refresh := SmartGetRefresh;
+  SmartKillClient(SmartCurrentClient);
+  SetupSRL;
+  try
+    CallProc('SMART_FreeDebug', Trash);
+    CallProc('SMART_SetupDebug', Trash);
+  except
+  end;
+  SmartSetRefresh(Refresh);
+  try
+    LoginSetup;
+  except
+    srl_Warn('SixHourFix', 'Players not declared', warn_Terminate);
+  end;
+end;
+
+//Wait for some amount of time until we reach wherever we are currently walking to.
+procedure WaitUntilThere;
+var
+  x: integer;
+begin
+  for x:=0 to 600 do
+  begin
+    Wait(randomrange(10,20));
+    if(not IsMoving)then
+      break;
+  end;
+  if(IsMoving and (not FFlag(1)))then
+  begin
+    FailOutOfCode('Somehow our isMoving check never returned a false.');
+  end;
+  wait(randomrange(200,350));
+end;
+
+//Click somewhere to walk to.
+procedure GoToDestination(mousex, mousey, ranx, rany: integer);
+begin
+  MMouse(mousex, mousey, ranx, rany);
+  Wait(RandomRange(30,90));
+  ClickMouse2(True);
+  wait(randomRange(1000,1050));
+  WaitUntilThere;
+end;
+
+//Similar to MiddleTPA, however it grabs the median point (still extremely likely to be centered) and is GUARANTEED to be a point on the monster, unlike MiddleTPA if 2 nearby tpas get combined.
+procedure MedianTPAEx(TPA: TPointArray; var fX, fY: integer);
+var
+  tpaLen: integer;
+begin
+  tpaLen:= GetArraylength(TPA);
+  if((tpaLen mod 2) = 0)then
+  begin
+    tpaLen:= tpaLen/2;//Not truly length, but saves a variable to store midway point here
+    fx:= TPA[tpaLen].x;
+    fy:= TPA[tpaLen].y;
+  end else
+  begin
+    tpaLen:= (tpaLen/2)+1;//Not truly length, but saves a variable to store midway point here
+    fx:= TPA[tpaLen].x;
+    fy:= TPA[tpaLen].y;
+  end;
+end;
+
+//Find whatever thing we're looking for on screen - and if necessary avoid it if it's in a fight already.
+function FindTarget(var x, y: integer; color, tol: integer; hue, sat: extended; minSize, maxDist: integer; upText: String; AvoidHP, limitDist: boolean): boolean;
+var
+  tempCTS, i, atpaLen, timer: integer;
+  ATPA : T2DPointArray;
+  TPA: TPointArray;
+  box: TBox;
+begin
+  tempCTS := GetColorToleranceSpeed; //set CTS
+  ColorToleranceSpeed(2);
+  SetColorSpeed2Modifiers(hue, sat);
+  FindColorsSpiralTolerance(MSCX, MSCY, TPA, color, MSX1, MSY1, MSX2, MSY2A, tol);
+  SetColorSpeed2Modifiers(0.2, 0.2);
+  ColorToleranceSpeed(tempCTS);
+  ATPA:= SplitTPA(TPA, 5);
+  SortATPAFromMidPoint(ATPA, Point(MSCX, MSCY));
+  atpaLen:= High(ATPA);
+  timer:= GetSystemTime+5000;
+  for i := 0 to atpaLen do //Loops through until it finds it
+  begin
+    if(GetSystemTime>timer)then
+      exit;
+    If (GetArraylength(ATPA[i]) > minSize) Then //Similar to 'length'
+    Begin
+      MiddleTPAEx(ATPA[i], x, y);
+      if(not(limitDist and (Distance(MSCX, MMCY, x, y) > maxDist)))then
+      begin
+        box:= IntToBox(Max(MSX1, x-25), Max(MSY1, y-55), Min(MSX2, x+25), Min(MSY2, y+10));
+        if(not(AvoidHP and (Length(GetFightBarTPA(box)) > 0)))then
+        begin
+          RunObjectDebug(ATPA[i]);
+          BrakeMMouse(x, y, 3, 3);
+          If (WaitUpTextAcc(upText, 0.7, 600)) Then
+          begin
+            Result := True;
+            GetMousePos(x, y);
+            Break;
+          end;
+        end;
+      end;
+    end;
+  end;
+end;
+
+function FindTargetInTarget(var x, y: integer; color, tol: TIntegerArray; hue, sat: TExtendedArray; upText: TStringArray): boolean;
+var
+  tempCTS, i, j, atpaLen1, atpaLen2: integer;
+  tempHue, tempSat: Extended;
+  ATPA, ATPA2: T2DPointArray;
+  TPA: TPointArray;
+  box: TBox;
+begin
+  tempCTS := GetColorToleranceSpeed; //set CTS
+  ColorToleranceSpeed(2);
+  GetColorspeed2Modifiers(tempHue, tempSat);
+  SetColorSpeed2Modifiers(hue[0], sat[0]);
+  FindColorsSpiralTolerance(MSCX, MSCY, TPA, color[0], MSX1, MSY1, MSX2, MSY2A, tol[0]);
+  ATPA:= SplitTPA(TPA, 5);
+  SortATPASize(ATPA, true);
+  atpaLen1:= High(ATPA);
+  SetColorSpeed2Modifiers(hue[1], sat[1]);
+  for i:= 0 to atpaLen1 do //Loops through until it finds it
+  begin
+    box:= GetTPABounds(atpa[i]);
+    FindColorsSpiralTolerance(MSCX, MSCY, TPA, color[1], box.X1, box.Y1, box.X2, box.Y2, tol[1]);
+    ATPA2:= SplitTPA(TPA, 5);
+    SortATPASize(ATPA2, true);
+    atpaLen2:= high(atpa2);
+    for j:=0 to atpaLen2 do
+    begin
+      MiddleTPAEx(ATPA2[j], x, y);
+      RunObjectDebug(ATPA2[j]);
+      BrakeMMouse(x, y, 3, 3);
+      If (WaitUpTextMulti(upText, 800)) Then
+      begin
+        Result := True;
+        GetMousePos(x, y);
+        SetColorSpeed2Modifiers(tempHue, tempSat);
+        ColorToleranceSpeed(tempCTS);
+        Exit;
+      end;
+    end;
+  end;
+  SetColorSpeed2Modifiers(tempHue, tempSat);
+  ColorToleranceSpeed(tempCTS);
+end;
+
+function FindAndClickEdgevilleFairyRing: boolean;
+var
+  tempCTS, x, y: integer;
+  ATPA : T2DPointArray;
+  TPA: TPointArray;
+begin
+  tempCTS := GetColorToleranceSpeed; //set CTS
+  ColorToleranceSpeed(2);
+  SetColorSpeed2Modifiers(0.03, 0.07);
+  FindColorsSpiralTolerance(MSCX, MSCY, TPA, 4544893, MSX1, MSY1, MSX2, MSY2A, 10);
+  SetColorSpeed2Modifiers(0.2, 0.2);
+  ColorToleranceSpeed(tempCTS);
+  ATPA:= TPAtoATPAEx(TPA, 120, 90);
+  SortATPASize(ATPA, true);
+  if((length(atpa)=0) or (length(atpa[0]) < 10))then
+    Exit;
+  MiddleTPAEx(ATPA[0], x, y);
+  BrakeMMouse(x, y, 3, 3);
+  If (WaitUpTextAcc('Use Fairy ring', 0.7, 600)) Then
+  begin
+    Result := True;
+    clickMouse2(mouse_Left);
+  end;
+end;
+
+function FairyCodeMenuOpen: boolean;
+begin
+  RunTextDebug('Fairy Code Menu color count: ' + inttostr(CountColorTolerance(4212288, MSX1, MSY1, MSX2, MSY2, 5)));
+  Result:= (CountColorTolerance(4212288, MSX1, MSY1, MSX2, MSY2, 5) > 20000);
+end;
+
+procedure SelectFairyLetter(letter: String);
+begin
+  RunTextDebug('Fairy letter: ' + letter);
+  if(not FairyCodeMenuOpen)then
+    Exit;
+  case Lowercase(letter) of
+    'a':begin  end; //nothing necessary
+    'b':begin Mouse(40, 170, 30, 30, mouse_left); end;
+    'c':begin
+      case Random(1) of
+        0:begin Mouse(40, 170, 30, 30, mouse_left); wait(randomRange(100,200)); ClickMouse2(mouse_left); end;
+        1:begin Mouse(140, 170, 30, 30, mouse_left); wait(randomRange(100,200)); ClickMouse2(mouse_left); end;
+      end;
+    end;
+    'd':begin Mouse(140, 170, 30, 30, mouse_left); end;
+    'i':begin
+    end; //nothing necessary
+    'j':begin Mouse(210, 170, 30, 30, mouse_left); end;
+    'k':begin
+      case Random(1) of
+        0:begin Mouse(210, 170, 30, 30, mouse_left); wait(randomRange(100,200)); ClickMouse2(mouse_left); end;
+        1:begin Mouse(310, 170, 30, 30, mouse_left); wait(randomRange(100,200)); ClickMouse2(mouse_left); end;
+      end;
+    end;
+    'l':begin Mouse(310, 170, 30, 30, mouse_left); end;
+    'p':begin  end; //nothing necessary
+    'q':begin Mouse(380, 170, 30, 30, mouse_left); end;
+    'r':begin
+      case Random(1) of
+        0:begin Mouse(380, 170, 30, 30, mouse_left); wait(randomRange(100,200)); ClickMouse2(mouse_left); end;
+        1:begin Mouse(480, 170, 30, 30, mouse_left); wait(randomRange(100,200)); ClickMouse2(mouse_left); end;
+      end;
+    end;
+    's':begin Mouse(480, 170, 30, 30, mouse_left); end;
+  end;
+  wait(randomRange(100,200));
+end;
+
+function FindFairyRing: boolean;
+var
+  timer, xPos: integer;
+begin
+  if(FindAndClickEdgevilleFairyRing)then
+    Result:= True;
+  timer:= GetSystemTime+10000;
+  wait(600);
+  repeat 
+    wait(randomRange(75,150));
+    xPos:= SPS_GetMyPos.x;
+  until((GetSystemTime > timer) or (xPos < 0));
+  if(GetSystemTime > timer)then
+    FailOutOfCode('Failed to get to Zanaris.');
+  ClickNorth(SRL_ANGLE_HIGH);
+  BrakeMMouse(262,188,5,5);
+  ClickMouse2(Mouse_Left);
+  timer:= GetSystemTime+10000;
+  repeat 
+    wait(randomRange(75,150));
+  until((GetSystemTime > timer) or (FairyCodeMenuOpen));
+  if(not FairyCodeMenuOpen)then
+    FailOutOfCode('Could not open fairy teleportation menu');
+end;
+
+function RotateCheck(check: function(): boolean; angleOfRotation: integer): boolean;
+var
+  i: integer;
+begin
+  i:= angleOfRotation-30;
+  while (i<=(angleOfRotation+30))do
+  begin
+    MakeCompass(i);
+    wait(randomRange(300,400));
+    if(Check())then
+    begin
+      Result:= True;
+      wait(randomRange(500,1000));
+      Exit;
+    end;
+    i:=i+30;
+  end;
+end;
+
+procedure GetToZanaris;
+var
+  tries: integer;
+begin
+  LodestoneTeleport('Edgeville');
+  wait(randomRange(16000, 17500));
+  repeat
+    ToggleActionBar(false);
+  until(not IsActionBarOpen);
+  SPS_Setup(RUNESCAPE_SURFACE, ['10_5', '10_6', '9_5', '9_6']);
+  SetAngle(SRL_ANGLE_HIGH);
+  for tries:= 0 to 3 do
+  begin
+    if(ObjDTM_WalkPath(['148:88:5:0:7:89:32:0:7:140:50:3:7:105:96:3:7:100:120:1:7:120:33', '147:78:7:0:7:132:50:0:7:77:41:1:7:76:20:1:7:56:24:1:7:135:85:3:7:36:111:3:7:41:87', '144:60:6:0:7:69:53:1:7:98:120:1:7:71:88:1:7:76:28:1:7:60:28:3:7:104:136', '131:121:8:1:7:74:115:1:7:82:96:1:7:98:111:1:7:102:88:1:7:106:69:1:7:91:65:1:7:82:126:5:7:113:76', '76:101:8:1:7:99:77:1:7:106:88:1:7:101:104:1:7:103:61:1:7:53:72:1:7:57:49:1:7:37:86:0:7:134:52'], 5, 200, 5, false, true))then
+      WaitUntilThere
+    else if(SPS_WalkPath([Point(4063, 2588), Point(4071, 2588), Point(4079, 2588), Point(4090, 2586), Point(4099, 2585), Point(4110, 2585), Point(4123, 2585), Point(4136, 2584), Point(4145, 2583), Point(4156, 2582), Point(4171, 2582), Point(4185, 2583), Point(4200, 2580), Point(4216, 2575), Point(4228, 2571), Point(4237, 2569), Point(4248, 2563), Point(4255, 2554), Point(4263, 2546), Point(4271, 2541), Point(4285, 2533), Point(4295, 2533), Point(4303, 2533), Point(4315, 2533), Point(4326, 2533), Point(4334, 2533), Point(4335, 2540), Point(4329, 2548), Point(4323, 2555), Point(4319, 2564), Point(4321, 2568), Point(4322, 2571), Point(4321, 2581), Point(4318, 2594), Point(4308, 2603), Point(4300, 2614), Point(4299, 2622)]))then
+      WaitUntilThere;
+    if(RotateCheck(@FindFairyRing, 0))then
+      break;
+    ClickNorth(SRL_ANGLE_HIGH);
+  end;
+  if(tries=4)then
+    FailOutOfCode('Some reason caused us to fail to reach the fairy ring.');
+end;
+
+procedure FairyRingTele(address: String);
+begin
+  if(length(address) <> 3)then
+  begin
+    FailOutOfCode('Fairy codes must be 3 letters.');
+  end;
+  GetToZanaris;
+  SelectFairyLetter(address[1]);
+  SelectFairyLetter(address[2]);
+  SelectFairyLetter(address[3]);
+  Mouse(260, 285, 75, 20, mouse_left);
+  repeat
+    ToggleActionBar(true);
+  until(IsActionBarOpen);
+end;
+
+//Climb some stairs up the tower!
+function ClimbStairs(up: boolean): boolean;
+var
+  x, y: integer;
+  curPt, pt: TPoint;
+  upText: TStringArray;
+  colors, tols: array[0..1] of integer;
+  hues, sats:  array[0..1] of extended;
+  decY: boolean;
+begin
+  if(up)then
+    upText:= ['b-u', '-up']
+  else
+    upText:= ['b-d', '-do', 'down'];
+  curPt:= SPS_GetMyPos;
+  colors[0]:= 4211522;
+  colors[1]:= 7370101;
+  tols[0]:= 5;
+  tols[1]:= 5;
+  hues[0]:= 1.12;
+  hues[1]:= 0;
+  sats[0]:= 0.14;
+  sats[1]:= 0.08;
+  x:= GetSystemTime+5000;
+  repeat
+    ToggleActionBar(false);
+    wait(50);
+  until((not IsActionBarOpen) or (GetSystemTime > x));
+  if(FindTargetInTarget(x, y, colors, tols, hues, sats, ['Clim', 'Sta', 'airs']))then
+  begin
+    ClickMouse2(mouse_right);
+    WaitOptionMulti(upText, 800);
+  end;
+  MarkTime(x);
+  repeat
+    pt:= SPS_GetMyPos;
+  until((Distance(curPt.x, curPt.y, pt.x, pt.y) > 10) or (TimeFromMark(x) >= 12500));
+  if(Distance(curPt.x, curPt.y, pt.x, pt.y) > 10)then
+    Result:= True;
+  repeat
+    ToggleActionBar(true);
+    wait(50);
+  until(IsActionBarOpen or (GetSystemTime > x));
+end;
+
+//Are we near our target monster?
+function CheckCurrentAgainstTarget: boolean;
+begin
+  result:= SPS_InBox(SPS_GetMyPos, Target.Box);
+end;
+
+function EnterGrotwormAgilityTunnel: boolean;
+var
+  tempCTS: integer;
+  tempHue, tempSat: Extended;
+  ATPA, ATPA2: T2DPointArray;
+  TPA, TPA2: TPointArray;
+  box: TBox;
+  pt: TPoint;
+begin
+  if(not LoggedIn)then
+    LoginSetup;
+  tempCTS := GetColorToleranceSpeed;
+  GetColorspeed2Modifiers(tempHue, tempSat);
+  ColorToleranceSpeed(1);
+  FindColorsSpiralTolerance(MSCX, MSCY, TPA, 855310, MSX1, MSY1, MSX2, MSY2A, 2);
+  ColorToleranceSpeed(2);
+  SetColorSpeed2Modifiers(0.00, 0.91);
+  FindColorsSpiralTolerance(MSCX, MSCY, TPA2, 1317150, MSX1, MSY1, MSX2, MSY2A, 4);
+  ColorToleranceSpeed(tempCTS);
+  SetColorSpeed2Modifiers(tempHue, tempSat);
+  ATPA:= SplitTPA(TPA, 1);
+  SortATPASize(atpa, true);
+  ATPA2:= SplitTPA(TPA2, 1);
+  SortATPASize(atpa2, true);
+  if((length(atpa) < 1) or (length(atpa2) < 1))then
+    Exit;
+  box:= GetTPABounds(atpa[0]);
+  TPA:= TPAFromBox(box);
+  if(FindTPAinTPA(atpa2[0], TPA, TPA2))then
+  begin
+    pt:= MiddleTPA(TPA);
+    MMouse(pt.x, pt.y, 4, 4);
+    if(WaitUpTextAcc('Investigate Shortcut', 0.7, 1000))then
+    begin
+      ClickMouse2(mouse_right);
+      if(WaitOptionAcc('Slide down Shortcut', 0.7, 1200))then
+        Result:= True;
+    end;
+  end;
+end;
+
+function EnterGrotwormTunnel: boolean;
+var
+  tempCTS, i: integer;
+  ATPA: T2DPointArray;
+  TPA: TPointArray;
+  box: TBox;
+  pt: TPoint;
+  colorCounted: boolean;
+begin
+  if(not LoggedIn)then
+    LoginSetup;
+  wait(randomRange(600,800));
+  tempCTS := GetColorToleranceSpeed;
+  ColorToleranceSpeed(1);
+  FindColorsSpiralTolerance(MSCX, MSCY, TPA, 1, MSX1, MSY1, MSX2, MSY2A, 1);
+  ColorToleranceSpeed(tempCTS);
+  ATPA:= SplitTPA(TPA, 1);
+  SortATPASize(atpa, true);
+   if(length(atpa) < 1)then
+    Exit;
+  box:= GetTPABounds(atpa[0]);
+  TPA:= TPAFromBox(box);
+  pt:= MiddleTPA(TPA);
+  MMouse(pt.x, pt.y, 4, 4);
+  if(waitUpTextAcc('Enter Cave entrance', 0.7, 800))then
+  begin
+    ClickMouse2(mouse_Left);
+    markTime(i);
+    repeat
+      wait(randomRange(20,40));
+      colorCounted:= CountColorTolerance(393733, MMX1, MMY1, MMX2, MMY2, 10) >  1000
+    until(colorCounted or (TimeFromMark(i) > 7500));
+    Result:= colorCounted;
+  end;
+end;
+
+function EnterWaterbirthCave: boolean;
+var
+  tempCTS, i: integer;
+  ATPA: T2DPointArray;
+  TPA: TPointArray;
+  box: TBox;
+  pt: TPoint;
+  colorCounted: boolean;
+begin
+  if(not LoggedIn)then
+    LoginSetup;
+  wait(randomRange(600,800));
+  tempCTS := GetColorToleranceSpeed;
+  ColorToleranceSpeed(1);
+  FindColorsSpiralTolerance(MSCX, MSCY, TPA, 1118482, MSX1, MSY1, MSX2, MSY2A, 10);
+  ColorToleranceSpeed(tempCTS);
+  ATPA:= SplitTPA(TPA, 1);
+  SortATPASize(atpa, true);
+   if(length(atpa) < 1)then
+    Exit;
+  box:= GetTPABounds(atpa[0]);
+  TPA:= TPAFromBox(box);
+  pt:= MiddleTPA(TPA);
+  MMouse(pt.x, pt.y, 4, 4);
+  if(waitUpTextAcc('Enter Cave entrance', 0.7, 800))then
+  begin
+    ClickMouse2(mouse_Left);
+    markTime(i);
+    repeat
+      wait(randomRange(20,40));
+      colorCounted:= CountColorTolerance(393733, MMX1, MMY1, MMX2, MMY2, 10) >  1000
+    until(colorCounted or (TimeFromMark(i) > 7500));
+    Result:= colorCounted;
+  end;
+end;
+
+function EnterAsgarnianIceCave: boolean;
+var
+  tempCTS, i: integer;
+  ATPA: T2DPointArray;
+  TPA: TPointArray;
+  box: TBox;
+  pt: TPoint;
+  colorCounted: boolean;
+begin
+  if(not LoggedIn)then
+    LoginSetup;
+  wait(randomRange(600,800));
+  tempCTS := GetColorToleranceSpeed;
+  ColorToleranceSpeed(2);
+  SetColorSpeed2Modifiers(2.78, 10.69);
+  FindColorsSpiralTolerance(MSCX, MSCY, TPA, 658448, MSX1, MSY1, MSX2, MSY2A, 2);
+  SetColorSpeed2Modifiers(0.2, 0.2);
+  ColorToleranceSpeed(tempCTS);
+  ATPA:= SplitTPA(TPA, 1);
+  SortATPASize(atpa, true);
+   if(length(atpa) < 1)then
+    Exit;
+  box:= GetTPABounds(atpa[0]);
+  TPA:= TPAFromBox(box);
+  pt:= MiddleTPA(TPA);
+  MMouse(pt.x, pt.y, 4, 4);
+  if(waitUpTextAcc('Climb-down Trapdoor', 0.7, 800))then
+  begin
+    ClickMouse2(mouse_Left);
+    markTime(i);
+    repeat
+      wait(randomRange(20,40));
+      colorCounted:= CountColorTolerance(393733, MMX1, MMY1, MMX2, MMY2, 10) >  1000
+    until(colorCounted or (TimeFromMark(i) > 7500));
+    Result:= colorCounted;
+  end;
+end;
+
+function EnterSkeletalWyvernCavern: boolean;
+var
+  x, y: integer;
+  colors, tols: array[0..1] of integer;
+  hues, sats: array[0..1] of extended;
+begin
+  colors[0]:= 789517;
+  tols[0]:= 1;
+  hues[0]:= 26.67;
+  sats[0]:= 20.64;
+  colors[1]:= 13086337;
+  tols[1]:= 33;
+  hues[1]:= 0.19;
+  sats[1]:= 1.11;
+  if(FindTargetInTarget(x, y, colors, tols, hues, sats, ['Exit ', ' Cave', 'it Ca']))then
+  begin
+    ClickMouse2(mouse_left);
+    ClickContinue(true, true);
+    TypeSendEx('1', false);
+  end;
+end;
+
+procedure SurpassWarning;
+var
+  timer: integer;
+  TPA: TPointArray;
+  Pt: TPoint;
+begin
+  timer:= GetSystemTime+5000;
+  repeat
+    wait(75);
+  until((CountColorTolerance(657930, MSX1, MSY1, MSX2, MSY2, 10) > 25000) or (GetSystemTime > Timer));
+  FindColors(TPA, clRed, 125, 150, 400, 180);
+  if(Length(tpa) > 1)then
+    pt:= TPA[Random(high(TPA))]
+  else
+    Exit;
+  Mouse(pt.x, pt.y, 0, 0, mouse_left);
+end;
+
+//WELCOME TO THE SECTION BY THE MAYOR - WRITTEN EXCLUSIVELY FOR THIS SCRIPT :D
+Function MayorsObstacleFinder(Hue, Sat: Extended; Colour, Tolerance, ClickType: Integer; UpText, Options: Array of String; SortPoint: TPoint): Boolean;
+Var
+  CTS, I, x, y: Integer;
+  TPA: TPointArray;
+  ATPA: Array of TPointArray;
+Begin
+  If Not LoggedIn Then Exit;
+  CTS := GetColorToleranceSpeed;
+  ColorToleranceSpeed(2);
+  SetColorSpeed2Modifiers(Hue,Sat);
+  FindColorsSpiralTolerance(MSCX, MSCY, TPA, Colour, MSX1, MSY1, MSX2, MSY2, Tolerance);
+  ColorToleranceSpeed(CTS);
+  If (Length(TPA) < 1) Then Exit;
+  ATPA := TPAToATPAEx(TPA, 15, 15);
+  SortATPAFromMidPoint(ATPA, SortPoint);
+  For I := 0 to High(ATPA) Do
+  Begin
+    MiddleTPAEx(ATPA[i], x, y);
+    MMouse(x, y, 2, 2);
+    If WaitUpTextMulti(UpText, 450) Then
+    Begin
+      ClickMouse2(ClickType);
+      If WaitOptionMulti(Options, 950) Then
+      Begin
+        If (Random(1) = 0) Then SmallRandomMouse;
+        Result := True;
+        Exit;
+      End Else
+      MMouse(MSCX, MSCY, 35, 35);
+    End;
+  End;
+End;
+
+Function NotMoving: Boolean;
+Begin
+  Result := AveragePixelShift(IntToBox(MMX1, MMY1, MMX2, MMY2), 50, 500) < 500;
+  If Result Then
+    WriteLn('We are not moving')
+End;
+
+Function IsInDungeon: Boolean;
+Var
+  B: Integer;
+Begin
+  If Not LoggedIn Then
+    Exit;
+  B:= PercentBlackMM;
+  WriteLn('PercentMMBlack: ' + IntToStr(B))
+  If B > 25 Then
+  Begin
+    WriteLn('We are inside the dungeon');
+    Result:= True
+  End;
+End;
+
+Function EnterTaverleyDungeon: Boolean;
+Var
+  TavLodeToDug: TPointArray;
+  x, y, i: Integer;
+Begin
+  SPS_Setup(RUNESCAPE_OTHER,['SurfaceTV']);
+  TavLodeToDug:=[Point(137,190),Point(142,201),Point(148,216),Point(157,237),Point(157,252),Point(160,270),Point(168,288),Point(180,294),Point(196,298),Point(214,300),Point(233,300),Point(235,315),Point(232,331),Point(213,340),Point(195,341),Point(180,347),Point(172,356),Point(166,361)];
+  Repeat
+    If Not LoggedIn Then
+      Exit;
+    LodestoneTeleport('taverley');
+    Wait(13500);
+  Until FindSymbol(x, y, 'portal') Or FindSymbol(x, y, 'quest') Or FindSymbol(x, y, 'lodestone');
+  If FindSymbol(x, y, 'portal') Or FindSymbol(x, y, 'quest') Or FindSymbol(x, y, 'lodestone') Then
+  Begin
+    WriteLn('Walking to Taverley Dungeon');
+    FTab(Tab_Inv);
+    SPS_WalkPath(TavLodeToDug);
+  End;
+  If FindColorTolerance(x, y, 2763504, MMX1, MMY1, MMX2, MMY2, 10) Then
+  Begin                         // click below the orange symbol
+    MMouse(X+8, Y+15, 1, 1)
+    Wait(250);
+    ClickMouse2(mouse_Left);
+    WaitFunc(@NotMoving, 250, 5000)
+  End;
+  For i := 0 To 4 Do
+  Begin
+    If MayorsObstacleFinder(0.28, 0.02, 5921110, 9, 0, ['teps', 'limb'], ['limb', 'down'], IntToPoint(MSCX, MSCY-60)) Then
+    Begin
+      Result := WaitFunc(@IsInDungeon, 250, 7000)
+      If Result Then Break;
+    End;
+    Inc(i);
+  End;
+End;
+
+//No more of the mayor's work for a bit
+procedure GetToKuradalsDungeon;
+begin
+  FairyRingTele('bjq');
+  SPS_Setup(RUNESCAPE_OTHER, ['ancient_cavern']);
+end;
+
+procedure GetToSlayerTower;
+begin
+  FairyRingTele('CKS');
+  SPS_Setup(RUNESCAPE_OTHER, ['SlayerTower']);
+  TPAWalk(2172352, 2, 40, 0, Point(MMX1, MMY1));
+  WaitUntilThere;
+  TPAWalk(5001811, 5, 0, 0, Point(MMCX, MMY1+10));
+  WaitUntilThere;
+  TPAWalk(5001811, 5, 0, 0, Point(MMCX-30, MMY1+10));
+  WaitUntilThere;
+  TPAWalk(3689557, 5, 0, 0, Point(MMCX-50, MMY1+20));
+  WaitUntilThere;
+  TPAWalk(3421422, 5, 20, 0, Point(MMX1, MMCY));
+  WaitUntilThere;
+end;
+
+procedure AbyssalWalk;
+begin
+  GetToSlayerTower;
+  SPS_WalkPath([Point(231, 458), Point(232, 445), Point(234, 433), Point(241, 421), Point(241, 406), Point(241, 397), Point(231, 386), Point(223, 375), Point(218, 360), Point(212, 346), Point(204, 335), Point(193, 323), Point(184, 319), Point(174, 307), Point(169, 303), Point(157, 293), Point(148, 285), Point(142, 272), Point(141, 257), Point(142, 247), Point(142, 229), Point(142, 217), Point(142, 205), Point(135, 195), Point(128, 188), Point(128, 177), Point(128, 166), Point(129, 155), Point(122, 145), Point(116, 134)]);
+  WaitUntilThere;
+  ClimbStairs(true);
+  ClimbStairs(true);
+  SPS_WalkPath([Point(739, 406), Point(737, 416), Point(736, 423), Point(736, 432), Point(732, 438), Point(725, 446), Point(717, 449), Point(707, 456), Point(701, 464)]);
+  WaitUntilThere;
+end;
+
+procedure AscensionWalk;
+begin
+  FailOutOfCode('I do not support Ascension at the moment because I don''t.');
+end;
+
+procedure AutomatonWalk;
+begin
+  FailOutOfCode('I do not support Automatons at the moment because I don''t have the requirements.');
+end;
+
+procedure AvianseWalk;
+begin
+  FailOutOfCode('I do not support Avianse at the moment because I don''t.');
+end;
+
+//MAYOR'S WORK AGAIN!
+procedure BlackDemonWalk;
+Var
+  i, x, y: Integer;
+Begin
+  If (EnterTaverleyDungeon) Then
+  Begin
+    SPS_Setup(RUNESCAPE_OTHER,['tav_dungeon']);
+    MakeCompass('E')
+    SetAngle(SRL_ANGLE_LOW)
+    For i := 0 To 4 Do
+    Begin
+      If MayorsObstacleFinder(0.28, 0.32, 4407869, 10, 0, ['queez', 'through'], ['ueeze', 'rough'], IntToPoint(86, 145)) Then
+      Begin
+        MakeCompass('N')
+        SetAngle(SRL_ANGLE_HIGH);
+        Wait(6750+Random(1000));
+        WriteLn('Out Obstacle');
+        if(Not FindColorTolerance(x, y, 132868, 634, 80, 643, 100, 5))then
+        Begin
+          WriteLn('Finished Taverley Dungeon Obstacle');
+          Break;
+        End;
+      End;
+      Inc(i);
+    End;
+  End;
+  SPS_WalkPath([Point(362,233),Point(364,276),Point(364,315),Point(353,349),Point(323,363),Point(293,336),Point(263,322)]);
+end;
+
+//MAYOR'S WORK YET AGAIN! But that's it for this script
+procedure BlackDragonWalk;
+begin
+  BlackDemonWalk;
+  SPS_WalkPath([Point(260,321),Point(279,296),Point(278,257),Point(267,238),Point(233,230),Point(205,211),Point(182,180),Point(144,171),Point(132,143)]);
+end;
+
+procedure BloodveldWalk;
+begin
+  GetToSlayerTower;
+  SPS_WalkPath([Point(231, 458), Point(232, 445), Point(234, 433), Point(241, 421), Point(241, 406), Point(241, 397), Point(231, 386), Point(223, 375), Point(218, 360), Point(212, 346), Point(204, 335), Point(193, 323), Point(184, 319), Point(174, 307), Point(169, 303), Point(157, 293), Point(148, 285), Point(142, 272), Point(141, 257), Point(142, 247), Point(142, 229), Point(142, 217), Point(142, 205), Point(135, 195), Point(128, 188), Point(128, 177), Point(128, 166), Point(129, 155), Point(122, 145), Point(116, 134)]);
+  WaitUntilThere;
+  ClimbStairs(true);
+  SPS_WalkPath([Point(739, 145), Point(739, 150), Point(736, 159), Point(735, 168), Point(729, 174), Point(720, 176), Point(713, 181), Point(710, 192), Point(708, 203)]);
+  WaitUntilThere;
+end;
+
+procedure BlueDragonWalk;
+begin
+  FailOutOfCode('I do not support Blue Dragons at the moment because I don''t.');
+end;
+
+procedure DagannothWalk;
+begin
+  CastSpell(AB_SKILLING_SPELLS, 2, 2);//Lunar waterbirth teleport
+  SPS_Setup(RUNESCAPE_SURFACE, ['3_2', '3_3', '3_4', '4_2', '4_3', '4_4']);
+  SPS_WalkPath([Point(1973, 1557), Point(1963, 1550), Point(1952, 1544), Point(1940, 1537), Point(1926, 1532), Point(1909, 1530), Point(1890, 1534), Point(1874, 1533), Point(1863, 1536), Point(1845, 1543), Point(1838, 1556), Point(1844, 1564), Point(1856, 1567), Point(1871, 1567), Point(1883, 1573), Point(1892, 1581), Point(1898, 1595), Point(1904, 1607), Point(1904, 1620), Point(1904, 1633), Point(1897, 1637), Point(1887, 1640), Point(1881, 1639)]);
+  WaitUntilThere;
+  MakeCompass(90);
+  EnterWaterbirthCave;
+  SurpassWarning;
+  SPS_Setup(RUNESCAPE_OTHER, ['waterbirth_island_dungeon']);
+end;
+
+procedure DarkBeastWalk;
+begin
+  FailOutOfCode('I do not support Dark Beasts at the moment because I don''t.');
+  GetToKuradalsDungeon;
+end;
+
+procedure DesertStrykewyrmWalk;
+begin
+  FailOutOfCode('I do not support Desert Strykewyrms at the moment because I don''t.');
+end;
+
+procedure DustDevilWalk;
+begin
+  FailOutOfCode('I do not support Dust Devils at the moment because I don''t.');
+end;
+
+procedure FireGiantWalk;
+begin
+  FailOutOfCode('I do not support Fire Giants at the moment because I don''t.');
+end;
+
+procedure GanodermicWalk;
+begin
+  FailOutOfCode('I do not support Ganodermic Beasts at the moment because I don''t.');
+end;
+
+//Walk to the gargoyle 
+procedure GargoyleWalk;
+var
+  x, y: integer;
+begin
+  GetToSlayerTower;
+  SPS_WalkPath([Point(231, 458), Point(232, 445), Point(234, 433), Point(241, 421), Point(241, 406), Point(241, 397), Point(231, 386), Point(223, 375), Point(218, 360), Point(212, 346), Point(204, 335), Point(193, 323), Point(184, 319), Point(174, 307), Point(169, 303), Point(157, 293), Point(148, 285), Point(142, 272), Point(141, 257), Point(142, 247), Point(142, 229), Point(142, 217), Point(142, 205), Point(135, 195), Point(128, 188), Point(128, 177), Point(128, 166), Point(129, 155), Point(122, 145), Point(116, 134)]);
+  WaitUntilThere;
+  ClimbStairs(true);
+  ClimbStairs(true);
+  FailOutOfCode('finish implementing gargoyles fool');
+  FindTarget(x, y, 5594487, 10, 0.03, 0.38, 10, 500, 'Open Door', false, false);
+  ClickMouse2(mouse_left);
+end;
+
+procedure GreaterDemonWalk;
+begin
+  FailOutOfCode('I do not support Greater Demons at the moment because I don''t.');
+end;
+
+procedure GrifolapineWalk;
+begin
+  FailOutOfCode('I do not support Grifolapines at the moment because I don''t.');
+end;
+
+procedure GrifolarooWalk;
+begin
+  FailOutOfCode('I do not support Grifolaroos at the moment because I don''t.');
+end;
+
+procedure GrotwormWalk;
+var
+  tries: integer;
+begin
+  LodestoneTeleport('Port Sarim');
+  wait(randomRange(16000, 17500));
+  SPS_Setup(RUNESCAPE_SURFACE, ['8_8', '8_9', '9_8', '9_9']);
+  for tries:= 0 to 3 do
+  begin
+    ClickNorth(SRL_ANGLE_LOW);
+    if(SPS_WalkPath([Point(3829, 3736), Point(3823, 3731), Point(3815, 3721), Point(3808, 3713), Point(3802, 3707), Point(3799, 3696), Point(3796, 3687), Point(3786, 3679), Point(3777, 3669), Point(3769, 3660), Point(3761, 3654+tries)]))then
+      WaitUntilThere;
+    if(RotateCheck(@EnterGrotwormTunnel, 270))then
+      break;
+  end;
+  if(tries=4)then
+    FailOutOfCode('Some reason caused us to fail to reach the grotworm tunnel.');
+  SPS_Setup(RUNESCAPE_OTHER, ['Grotworms']);
+  
+  for tries:= 0 to 3 do
+  begin
+    if(SPS_WalkPath([Point(519, 91), Point(511, 90), Point(499, 89), Point(488, 86), Point(473, 83), Point(466, 89), Point(456, 95), Point(443, 95), Point(432, 97), Point(423, 104), Point(420, 114), Point(411, 119), Point(410, 126), Point(408, 134), Point(411, 142), Point(416+tries, 149+tries)]))then
+      WaitUntilThere;
+    if(RotateCheck(@EnterGrotwormAgilityTunnel, 90))then
+    begin
+      ClickNorth(SRL_ANGLE_HIGH);
+      Exit;
+    end;
+  end;
+  if(tries=4)then
+    FailOutOfCode('Some reason caused us to fail to enter the agility shortcut.');
+end;
+
+procedure HellhoundWalk;
+begin
+  FailOutOfCode('I do not support Hellhounds at the moment because I don''t.');
+end;
+
+procedure IronDragonWalk;
+begin
+  FailOutOfCode('I do not support Iron Dragons at the moment because I don''t.');
+
+end;
+
+procedure JungleStrykewyrmWalk;
+begin
+  FailOutOfCode('I do not support Jungle Strykewyrms at the moment because I don''t.');
+end;
+
+procedure KalphiteWalk;
+begin
+  FailOutOfCode('I do not support Kalphites at the moment because I don''t.');
+end;
+
+procedure LivingRockWalk;
+begin
+  FailOutOfCode('I do not support Living Rock Creatures at the moment because I don''t.');
+end;
+
+procedure MithrilDragonWalk;
+begin
+  FailOutOfCode('I do not support Mithril Dragons at the moment because they seriously destroy and I want to test manually more before having a chance of anyone dying.');
+
+end;
+
+procedure MutatedJadinkoWalk;
+begin
+  FailOutOfCode('I do not support Mutated Jadinkos at the moment because I don''t.');
+end;
+
+procedure NechryaelWalk;
+begin
+  GetToSlayerTower;
+  SPS_WalkPath([Point(231, 458), Point(232, 445), Point(234, 433), Point(241, 421), Point(241, 406), Point(241, 397), Point(231, 386), Point(223, 375), Point(218, 360), Point(212, 346), Point(204, 335), Point(193, 323), Point(184, 319), Point(174, 307), Point(169, 303), Point(157, 293), Point(148, 285), Point(142, 272), Point(141, 257), Point(142, 247), Point(142, 229), Point(142, 217), Point(142, 205), Point(135, 195), Point(128, 188), Point(128, 177), Point(128, 166), Point(129, 155), Point(122, 145), Point(116, 134)]);
+  WaitUntilThere;
+  ClimbStairs(true);
+  ClimbStairs(true);
+  SPS_WalkPath([Point(741, 406), Point(739, 394), Point(739, 381), Point(734, 374), Point(724, 372)]);
+end;
+
+procedure SkeletalWyvernWalk;
+var
+  timer: integer;
+  tp: TPoint;
+begin
+  LodestoneTeleport('Port Sarim');
+  wait(randomRange(16000, 17500));
+  SPS_Setup(RUNESCAPE_SURFACE, ['8_10', '8_8', '8_9', '9_10', '9_8', '9_9']);
+  SPS_WalkPath([Point(3836, 3753), Point(3825, 3760), Point(3823, 3775), Point(3822, 3793), Point(3824, 3811), Point(3824, 3823), Point(3825, 3836), Point(3827, 3851), Point(3827, 3860), Point(3826, 3876), Point(3826, 3887), Point(3823, 3902), Point(3823, 3913), Point(3823, 3926), Point(3823, 3934), Point(3823, 3942), Point(3823, 3951), Point(3824, 3961), Point(3823, 3965), Point(3823, 3974), Point(3823, 3982), Point(3823, 3989), Point(3824, 3998), Point(3824, 4003)]);
+  WaitUntilThere;
+  RotateCheck(@EnterAsgarnianIceCave, 0);
+  ClickNorth(SRL_ANGLE_LOW);
+  SPS_Setup(RUNESCAPE_OTHER, ['asgarnia_ice_dungeon']);
+  timer:= GetSystemTime+5000;
+  repeat
+    wait(randomrange(50,75));
+    tp:= SPS_GetMyPos;
+  until((tp.x > 0) or (GetSystemTime > timer));
+  SPS_WalkPath([Point(273, 491), Point(267, 495), Point(255, 498), Point(239, 488), Point(231, 483), Point(225, 469), Point(221, 442), Point(218, 414), Point(220, 395), Point(239, 382), Point(260, 369), Point(284, 367), Point(306, 369), Point(319, 369), Point(347, 363), Point(359, 361), Point(381, 363), Point(395, 369), Point(408, 380), Point(422, 387), Point(433, 398), Point(454, 411), Point(464, 423), Point(467, 432), Point(471, 441), Point(470, 453)]);
+  RotateCheck(@EnterSkeletalWyvernCavern, 180);
+  ClickNorth(SRL_ANGLE_HIGH);
+end;
+
+//Walk to the spectre
+procedure SpectreWalk;
+var
+  x, y: integer;
+begin
+  GetToSlayerTower;
+  SPS_WalkPath([Point(231, 458), Point(232, 445), Point(234, 433), Point(241, 421), Point(241, 406), Point(241, 397), Point(231, 386), Point(223, 375), Point(218, 360), Point(212, 346), Point(204, 335), Point(193, 323), Point(184, 319), Point(174, 307), Point(169, 303), Point(157, 293), Point(148, 285), Point(142, 272), Point(141, 257), Point(142, 247), Point(142, 229), Point(142, 217), Point(142, 205), Point(135, 195), Point(128, 188), Point(128, 177), Point(128, 166), Point(129, 155), Point(122, 145), Point(116, 134)]);
+  WaitUntilThere;
+  ClimbStairs(true);
+  SPS_WalkPath([Point(739, 148), Point(739, 158), Point(738, 167), Point(738, 180), Point(741, 196), Point(750, 206), Point(761, 209), Point(775, 208), Point(790, 209), Point(800, 199), Point(802, 178)]);
+  FindTarget(x, y, 5594487, 10, 0.03, 0.38, 10, 500, 'Open Door', false, false);
+  ClickMouse2(mouse_left);
+  WaitUntilThere;
+  Wait(RandomRange(600,900));
+  SPS_WalkPath([Point(812, 177), Point(818, 178), Point(822, 171), Point(828, 171)]);
+  WaitUntilThere;
+end;
+
+procedure SpiritualMageWalk;
+begin
+  FailOutOfCode('I do not support Spiritual Mages at the moment because I don''t.');
+end;
+
+procedure SteelDragonWalk;
+begin
+  FailOutOfCode('I do not support Steel Dragons at the moment because they seriously destroy and I don''t.');
+
+end;
+
+procedure SuqahWalk;
+begin
+  SPS_Setup(RUNESCAPE_SURFACE, ['0_1', '0_2']);
+  if not LoggedIn then Exit;
+    if not LodestoneScreen then
+      if not OpenLodestoneScreen then
+        Exit;
+  Wait(RandomRange(400, 1000));
+  Mouse(46, 77, 2, 2, mouse_left);
+  wait(randomRange(16000, 17500));
+  SPS_WalkPath([Point(145, 940), Point(149, 940), Point(159, 941), Point(166, 941), Point(177, 939), Point(195, 939), Point(213, 936), Point(227, 934), Point(237, 933), Point(239, 942), Point(242, 955), Point(243, 966), Point(247, 969), Point(252, 974), Point(252, 974), Point(257, 968), Point(261, 949), Point(263, 941), Point(263, 931), Point(268, 918), Point(275, 906), Point(284, 890), Point(303, 872), Point(314, 867), Point(323, 864), Point(336, 854), Point(342, 849), Point(353, 842), Point(356, 835)]);
+end;
+
+procedure TzhaarWalk;
+begin
+  FailOutOfCode('I do not support Tzhaar at the moment because I don''t.');
+  FairyRingTele('blp');
+end;
+
+procedure WarpedTortoiseWalk;
+begin
+  FailOutOfCode('I do not support Warped Tortoises at the moment because I don''t.');
+end;
+
+procedure WaterfiendWalk;
+begin
+  GetToKuradalsDungeon;
+end;
+
+//Setup all the necessary information, variables, and walking methods necessary for whoever we are targetting.
+procedure SetupAttackTarget(targetName: String);
+begin
+  case UpperCase(targetName) of
+    'ABERRANT SPECTRE':begin
+      Target.Color:= 5733752;
+      Target.Tolerance:= 9;
+      Target.Hue:= 0.17;
+      Target.Sat:= 1.45;
+      Target.MinSize:= 100;
+      Target.UpText:= 'Attack Aberrant spectre (level: 104)';
+      Target.UpTextSplit:= ['Aberr', 'rrant', 'ant Sp', 'Spect', 'ctre'];
+      Target.Box:= IntToBox(808, 64, 877, 192);
+      Target.Walk:= @SpectreWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'ABYSSAL DEMON':begin
+      Target.Color:= 2172730;
+      Target.Tolerance:= 9;
+      Target.Hue:= 0.48;
+      Target.Sat:= 2.88;
+      Target.MinSize:= 100;
+      Target.UpText:= 'Attack Abyssal demon (level: 140)';
+      Target.UpTextSplit:= ['Abyss', 'ssal', 'al De', 'emon'];
+      Target.Box:= IntToBox(686, 461, 716, 481);
+      Target.Walk:= @AbyssalWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'ASCENSION':begin
+      //Skip because I haven't done the quest <.<
+      FailOutOfCode('Ascension is unsupported due to them requiring multiple people working together to kill.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @AscensionWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'AUTOMATON':begin
+      //skip
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @AutomatonWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'AVIANSE':begin
+      //skip
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @AvianseWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'BLACK DEMON':begin
+      Target.Color:= 7098981;
+      Target.Tolerance:= 13;
+      Target.Hue:= 1.13;
+      Target.Sat:= 0.55;
+      Target.MinSize:= 50;
+      Target.UpText:= 'Attack Black demon (level: 140)';
+      Target.UpTextSplit:= ['ck de', 'k dem'];
+      Target.Box:= IntToBox(210, 301, 263, 344);
+      Target.Walk:= @BlackDemonWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'BLACK DRAGON':begin
+      Target.Color:= 2105634;
+      Target.Tolerance:= 6;
+      Target.Hue:= 1.39;
+      Target.Sat:= 0.23;
+      Target.MinSize:= 50;
+      Target.UpText:= 'Attack Black dragon (level: 144)';
+      Target.UpTextSplit:= ['ck dr', 'k dra'];
+      Target.Box:= IntToBox(117, 122, 145, 143);
+      Target.Walk:= @BlackDragonWalk;
+      Target.WithdrawExtra:= true;
+      Target.WithdrawNames:= ['antifire potion'];
+      Target.WithdrawQuantities:= [3];
+    end;
+    'BLOODVELD':begin
+      Target.Color:= 7710417;
+      Target.Tolerance:= 17;
+      Target.Hue:= 0.11;
+      Target.Sat:= 1.91;
+      Target.MinSize:= 100;
+      Target.UpText:= 'Attack Bloodveld (level: 98)';
+      Target.UpTextSplit:= ['Bloo', 'odv', 'veld'];
+      Target.Box:= IntToBox(661, 183, 731, 225);
+      Target.Walk:= @BloodveldWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'BLUE DRAGON':begin
+      //skip
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @BlueDragonWalk;
+      Target.WithdrawExtra:= true;
+      Target.WithdrawNames:= ['antifire potion'];
+      Target.WithdrawQuantities:= [3];
+    end;
+    'DAGANNOTH':begin
+      Target.Color:= 10592675;
+      Target.Tolerance:= 36;
+      Target.Hue:= 0.35;
+      Target.Sat:= 0.05;
+      Target.MinSize:= 50;
+      Target.UpText:= 'Attack Dagannoth (level: 112)';
+      Target.UpTextSplit:= ['Dagan', 'nnoth'];
+      Target.Box:= IntToBox(27, 67, 65, 102);
+      Target.Walk:= @DagannothWalk;
+      Target.WithdrawExtra:= true;
+      Target.WithdrawNames:= ['law rune', 'water rune', 'astral rune'];
+      Target.WithdrawQuantities:= [1,1,2];
+    end;
+    'DARK BEAST':begin
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @DarkBeastWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'DESERT STRYKEWYRM':begin
+      //skip
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @DesertStrykewyrmWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'DUST DEVIL':begin
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @DustDevilWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'FIRE GIANT':begin
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @FireGiantWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'GANODERMIC':begin
+    //skip
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @GanodermicWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'GARGOYLE':begin
+      Target.Color:= 5592409;
+      Target.Tolerance:= 13;
+      Target.Hue:= 0.43;
+      Target.Sat:= 0.05;
+      Target.MinSize:= 100;
+      Target.UpText:= 'Attack Gargoyle (level: 134)';
+      Target.UpTextSplit:= ['Garg', 'rgoy', 'oyle'];
+      Target.Box:= IntToBox(829, 384, 869, 400);
+      Target.Walk:= @GargoyleWalk;
+      Target.WithdrawExtra:= true;
+      Target.WithdrawNames:= ['rock hammer'];
+      Target.WithdrawQuantities:= [1];
+    end;
+    'GREATER DEMON':begin
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @GreaterDemonWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'GRIFOLAPINE':begin
+      //skip
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @GrifolapineWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'GRIFOLAROO':begin
+      //skip
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @GrifolarooWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'GROTWORM':begin
+      Target.Color:= 10473709;
+      Target.Tolerance:= 10;
+      Target.Hue:= 0.18;
+      Target.Sat:= 2.71;
+      Target.MinSize:= 75;
+      Target.UpText:= 'Attack Mature grotworm (level: 120)';
+      Target.UpTextSplit:= ['Grotw', 'tworm'];
+      Target.Box:= IntToBox(408, 333, 500, 445);
+      Target.Walk:= @GrotwormWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'HELLHOUND':begin
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @HellhoundWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'IRON DRAGON':begin
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @IronDragonWalk;
+      Target.WithdrawExtra:= true;
+      Target.WithdrawNames:= ['antifire potion'];
+      Target.WithdrawQuantities:= [3];
+    end;
+    'JUNGLESTRYKEWYRM':begin
+      //skip
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @JungleStrykewyrmWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'KALPHITE':begin
+      //skip
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @KalphiteWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'LIVIN GROCK':begin
+      //skip
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @LivingRockWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'MITHRIL DRAGON':begin
+      //skip
+      Target.Color:= 9397342;
+      Target.Tolerance:= 13;
+      Target.Hue:= 0.05;
+      Target.Sat:= 0.63;
+      Target.MinSize:= 50;
+      Target.UpText:= 'Attack Mithril dragon (level: 160)';
+      Target.UpTextSplit:= ['Mithr', 'hril', 'il dra', 'ragon'];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @MithrilDragonWalk;
+      Target.WithdrawExtra:= true;
+      Target.WithdrawNames:= ['antifire potion'];
+      Target.WithdrawQuantities:= [3];
+    end;
+    'MUTATED JADINKO':begin
+      //should skip I guess
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @MutatedJadinkoWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'NECHRYAEL':begin
+      Target.Color:= 4408654;
+      Target.Tolerance:= 16;
+      Target.Hue:= 0.19;
+      Target.Sat:= 0.05;
+      Target.MinSize:= 50;
+      Target.UpText:= 'Attack Nechryael (level: 138)';
+      Target.UpTextSplit:= ['Nech', 'echry', 'ryal'];
+      Target.Box:= IntToBox(692, 350, 731, 350);
+      Target.Walk:= @NechryaelWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'SKELETAL WYVERN':begin
+      Target.Color:= 8549996;
+      Target.Tolerance:= 23;
+      Target.Hue:= 0.14;
+      Target.Sat:= 0.33;
+      Target.MinSize:= 50;
+      Target.UpText:= 'Attack Skeletal Wyvern (level: 156)';
+      Target.UpTextSplit:= ['Skeleta', 'tal Wyv', 'Wyve', 'yvern'];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @SkeletalWyvernWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'SPIRITUAL MAGE':begin
+      //skip
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @SpiritualMageWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'STEEL DRAGON':begin
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @SteelDragonWalk;
+      Target.WithdrawExtra:= true;
+      Target.WithdrawNames:= ['antifire potion'];
+      Target.WithdrawQuantities:= [3];
+    end;
+    'SUQAH':begin
+      Target.Color:= 6317153;
+      Target.Tolerance:= 21;
+      Target.Hue:= 1.39;
+      Target.Sat:= 0.07;
+      Target.MinSize:= 150;
+      Target.UpText:= 'Attack Suqah (level: 106)';
+      Target.UpTextSplit:= ['Suqa', 'uqah'];
+      Target.Box:= IntToBox(328, 806, 377, 834);
+      Target.Walk:= @SuqahWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'TZHAAR':begin
+      //skip
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @TzhaarWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'WARPEDTORTOISE':begin
+      //skip
+      FailOutOfCode(targetName + ' is not supported cuz I haven''t done the work yet.');
+      Target.Color:= 0;
+      Target.Tolerance:= 0;
+      Target.Hue:= 0;
+      Target.Sat:= 0;
+      Target.MinSize:= 0;
+      Target.UpText:= '';
+      Target.UpTextSplit:= [''];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @WarpedTortoiseWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    'WATERFIEND':begin
+      Target.Color:= 5719071;
+      Target.Tolerance:= 9;
+      Target.Hue:= 0.3;
+      Target.Sat:= 1.85;
+      Target.MinSize:= 50;
+      Target.UpText:= 'Attack Waterfiend (level: 154)';
+      Target.UpTextSplit:= ['Waterf', 'terfie', 'rfiend'];
+      Target.Box:= IntToBox(0, 0, 0, 0);
+      Target.Walk:= @WaterfiendWalk;
+      Target.WithdrawExtra:= false;
+    end;
+    else FailOutOfCode('The slayer task of ' + ToStr(targetName) + ' is invalid or not supported.  Sorry.');
+  end;
+end;
+
+//Setup everything
+procedure SetupVariables;
+var
+  i: integer;
+begin
+  ObjDTM_Setup;
+ // SPS_Tolerance:= 300;
+  waitTimeBetweenSkills:= RandomRange(400,600);
+  SPS_Setup(RUNESCAPE_OTHER, ['SlayerTower']);
+  TimeToBreak:= GetSystemTime + (RandomRange(minutesTillBreakMin, minutesTillBreakMax) * 60000);
+  BreakLength:= (RandomRange(breakLengthMin, breakLengthMax) * 60000);
+  inFightDTM:= DTMFromString(inFightDTMString);
+  foodDTM:= DTMFromString(foodDTMString);
+  RedBarDTM:= DTMFromString(redBarDTMString);
+  gemDTM:= DTMFromString(gemDTMString);
+  teleTabDTM:= DTMFromSTring(teleTabDTMString);
+  if(SmartProggy)then
+    ProggyBmp:= LoadBitmap(AppPath + '/Scripts/KSTProgPic.jpg');
+ 
+  if(LootStuff)then
+  begin
+    writeln('Starting to get GE values of upcoming loot....');
+    SetLength(lootList, 57);
+    lootList[0].Name:= 'Adamant chainbody';
+    lootList[0].Value:= 2880;
+    lootList[1].Name:= 'Adamant  sq shield';
+    lootList[1].Value:= 2304;
+    lootList[2].Name:= 'Rune dagger';
+    lootList[2].Value:= 4800;
+    lootList[3].Name:= 'Rune helm';
+    lootList[3].Value:= 11520;
+    lootList[4].Name:= 'Rune mace';
+    lootList[4].Value:= 8640;
+    lootList[5].Name:= 'Rune longsword';
+    lootList[5].Value:= 19200;
+    lootList[6].Name:= 'Dragon dagger';
+    lootList[6].Value:= 18000;
+    lootList[7].Name:= 'Rune full helm';
+    lootList[7].Value:= 14000;
+    lootList[8].Name:= 'Grimy ranarr';
+    lootList[8].Value:= 207;
+    lootList[9].Name:= 'Grimy avantoe';
+    lootList[9].Value:= 211;
+    lootList[10].Name:= 'Grimy kwuarm';
+    lootList[10].Value:= 213;
+    lootList[11].Name:= 'Grimy dwarf weed';
+    lootList[11].Value:= 217;
+    lootList[12].Name:= 'Grimy cadantine';
+    lootList[12].Value:= 215;
+    lootList[13].Name:= 'Grimy lantadyme';
+    lootList[13].Value:= 2485;
+    lootList[14].Name:= 'Avantoe seed';
+    lootList[14].Value:= 5298;
+    lootList[15].Name:= 'Dwarf weed seed';
+    lootList[15].Value:= 5303;
+    lootList[16].Name:= 'Cadantine seed';
+    lootList[16].Value:= 5301;
+    lootList[17].Name:= 'Snapdragon seed';
+    lootList[17].Value:= 5300;
+    lootList[18].Name:= 'Lantadyme seed';
+    lootList[18].Value:= 5302;
+    lootList[19].Name:= 'Torstol seed';
+    lootList[19].Value:= 5304;
+    lootList[20].Name:= 'Yew seed';
+    lootList[20].Value:= 5315;
+    lootList[21].Name:= 'Magic seed';
+    lootList[21].Value:= 5316;
+    lootList[22].Name:= 'Flax';
+    lootList[22].Value:= 1779;
+    lootList[23].Name:= 'Adamantite ore';
+    lootList[23].Value:= 449;
+    lootList[24].Name:= 'Runite ore';
+    lootList[24].Value:= 451;
+    lootList[25].Name:= 'Yew logs';
+    lootList[25].Value:= 1515;
+    lootList[26].Name:= 'Blood rune';
+    lootList[26].Value:= 565;
+    lootList[27].Name:= 'Law rune';
+    lootList[27].Value:= 563;
+    lootList[28].Name:= 'Rune bar';
+    lootList[28].Value:= 2363;
+    lootList[29].Name:= 'Uncut diamond';
+    lootList[29].Value:= 1617;
+    lootList[30].Name:= 'Uncut dragonstone';
+    lootList[30].Value:= 1731;
+    lootList[31].Name:= 'Dragonstone';
+    lootList[31].Value:= 1615;
+    lootList[32].Name:= 'Rune battleaxe';
+    lootList[32].Value:= 1373;
+    lootList[33].Name:= 'Rune spear';
+    lootList[33].Value:= 1247;
+    lootList[34].Name:= 'Dragon spear';
+    lootList[34].Value:= 1249;
+    lootList[35].Name:= 'Rune kiteshield';
+    lootList[35].Value:= 1201;
+    lootList[36].Name:= 'Dragon helm';
+    lootList[36].Value:= 1149;
+    lootList[37].Name:= 'Adamant bolts';
+    lootList[37].Value:= 9143;
+    lootList[38].Name:= 'Rune arrow';
+    lootList[38].Value:= 892;
+    lootList[39].Name:= 'Onyx bolts';
+    lootList[39].Value:= 9342;
+    lootList[40].Name:= 'Battlestaff';
+    lootList[40].Value:= 1391;
+    lootList[41].Name:= 'Air orb';
+    lootList[41].Value:= 573;
+    lootList[42].Name:= 'Fire orb';
+    lootList[42].Value:= 569;
+    lootList[43].Name:= 'Vecna skull';
+    lootList[43].Value:= 20667;
+    lootList[44].Name:= 'Water talisman';
+    lootList[44].Value:= 1444;
+    lootList[45].Name:= 'Earth talisman';
+    lootList[45].Value:= 1440;
+    lootList[46].Name:= 'Fire talisman';
+    lootList[46].Value:= 1442;
+    lootList[47].Name:= 'Pure essence';
+    lootList[47].Value:= 7936;
+    lootList[48].Name:= 'Nature rune';
+    lootList[48].Value:= 561;
+    lootList[49].Name:= 'Raw shark';
+    lootList[49].Value:= 383;
+    lootList[50].Name:= 'Coal';
+    lootList[50].Value:= 453;
+    lootList[51].Name:= 'Silver ore';
+    lootList[51].Value:= 442;
+    lootList[52].Name:= 'Adamant bar';
+    lootList[52].Value:= 2361;
+    lootList[53].Name:= 'Clean ranarr';
+    lootList[53].Value:= 257;
+    lootList[54].Name:= 'Clean toadflax';
+    lootList[54].Value:= 2998;
+    lootList[55].Name:= 'Clean snapdragon';
+    lootList[55].Value:= 3000;
+    lootList[56].Name:= 'Clean torstol';
+    lootList[56].Value:= 269;
+    for i:=8 to 57 do
+    begin
+      try
+        lootList[i].Value:= GetGEPrice(lootList[i].Value);
+      except
+      end;
+    end;
+    lootList[14].Value:= lootList[14].Value * 2;
+    lootList[19].Value:= lootList[19].Value * 2;
+    lootList[20].Value:= lootList[20].Value * 50;
+    lootList[22].Value:= lootList[22].Value * 50;
+    lootList[23].Value:= lootList[23].Value * 3;
+    lootList[25].Value:= lootList[25].Value * 20000;
+    lootList[26].Value:= lootList[26].Value * 50;
+    lootList[27].Value:= lootList[27].Value * 45;
+    lootList[28].Value:= lootList[28].Value * 150;
+    lootList[37].Value:= lootList[37].Value * 200;
+    lootList[38].Value:= lootList[38].Value * 500;
+    lootList[39].Value:= lootList[39].Value * 150;
+    lootList[40].Value:= lootList[40].Value * 200;
+    lootList[41].Value:= lootList[41].Value * 1000;
+    lootList[42].Value:= lootList[42].Value * 1000;
+    lootList[45].Value:= lootList[45].Value * 35;
+    lootList[46].Value:= lootList[46].Value * 35;
+    lootList[47].Value:= lootList[47].Value * 15000;
+    lootList[48].Value:= lootList[48].Value * 77;
+    lootList[49].Value:= lootList[49].Value * 500;
+    lootList[50].Value:= lootList[50].Value * 7500;
+    lootList[51].Value:= lootList[51].Value * 100;
+    lootList[52].Value:= lootList[52].Value * 7000;
+    lootList[53].Value:= lootList[53].Value * 33;
+    lootList[54].Value:= lootList[54].Value * 250;
+    lootList[55].Value:= lootList[55].Value * 120;
+    lootList[56].Value:= lootList[56].Value * 100;
+    if(LootEffigies)then
+    begin
+      SetLength(lootList, (length(lootList)+1));
+      lootList[high(lootList)].Name:= 'Ancient effigy';
+    end;
+    if(LootSpecialBones)then
+    begin
+      SetLength(lootList, (length(lootList)+2));
+      lootList[high(lootList)-1].Name:= 'Long bone';
+      lootList[high(lootList)].Name:= 'Curved bone';
+    end;
+    if(LootCharms)then
+    begin
+      SetLength(lootList, (length(lootList)+3));
+      lootList[high(lootList)-2].Name:= 'Blue charm';
+      lootList[high(lootList)-1].Name:= 'Crimson charm';
+      lootList[high(lootList)].Name:= 'Green charm';
+    end;
+    RunTextDebug('Finally done getting GE values of upcoming loot....');
+    for i:= 0 to high(lootList) do
+      RunTextDebug('Name: ' + lootList[i].Name + '. Value: ' + inttostr(lootList[i].Value));
+  end;
+  if(DebugSmart)then
+  begin
+    for i:=0 to 4 do
+    begin
+      DebugMessages[i]:= '';
+    end;
+  end;
+end;
+
+//Is it time to either break or stop running yet?
+procedure TryBreakOrFinish;
+begin
+  if(ImplementBreaks and (TimeToBreak < GetSystemTime))then
+  begin
+    MiniBreak;
+  end;
+end;
+
+//Eat some food
+procedure EatFood;
+var
+  tpa: TPointArray;
+begin
+  if(not foodRemaining)then
+    Exit;
+  FTab(tab_Inv);
+  if(DTMExists(foodDTM) and FindDTMs(foodDTM, tpa, MIX1, MIY1, MIX2, MIY2))then
+  begin
+    BrakeMMouse(tpa[0].x, tpa[0].y, 5, 5);
+    ClickMouse2(mouse_left);
+    if(Length(tpa) < 2)then
+      foodRemaining:= False;
+  end;
+end;
+
+//Hop worlds because too many people are nearby, probably harming our xp/hr.
+procedure ChangeWorlds;
+begin
+  if(HasTargetBar or InFight)then
+    Exit;
+  RunSmartDebug('Change Worlds');
+  WriteLn('We''re hopping worlds right quick, let''s hope that boosts your xp!');
+  repeat
+    ExitToLobby;
+    LoginPlayerToLob;
+  until LobbyScreen;
+  OpenWorldScreen;
+  SelectWorld(RandomWorld(true,false));
+  LoginSetup;
+end;
+
+function OpenDesiredBank: boolean;
+var
+  tries, time, x, y: integer;
+  found: boolean;
+begin
+  SPS_Setup(RUNESCAPE_OTHER, ['Fally']);
+  for tries:=0 to 3 do
+  begin
+    SPS_WalkPath([Point(173, 126), Point(158, 128), Point(147, 127), Point(134, 129), Point(124, 137), Point(114, 147), Point(102, 155), Point(97, 167), Point(100, 179)]);
+    WaitUntilThere;
+    MakeCompass('S');
+    if(FindTarget(x, y, BankBoothCol, BankBoothTol, BankBoothHue, BankBoothSat, 30, 5, BankBoothText, false, false))then
+    begin
+      ClickMouse2(mouse_Left);
+      time:= GetSystemTime + 2500;
+      repeat
+        wait(randomRange(100,200));
+      until(PinScreen or BankScreen or (GetSystemTime > time));
+      if(PinScreen)Then
+        if(not InPin(PlayerPin))then
+          FailOutOfCode('Something is wrong with your pin.');
+      time:= GetSystemTime + 2500;
+      repeat
+        wait(randomRange(100,200));
+      until(BankScreen or (time < GetSystemTime));
+      if(BankScreen)then
+        break;
+      WaitUntilThere;
+    end;
+  end;
+  if(BankScreen)then
+    Result:= true;
+end;
+
+procedure GetToBank;
+var
+  tries, time, x, y: integer;
+  found: boolean;
+begin
+  if(not LoggedIn)then
+    LoginSetup;
+  repeat
+    FTab(tab_Inv);
+    wait(randomRange(80,160));
+  until(GetCurrentTab = tab_Inv);
+  if(FindDTM(teleTabDTM, x, y, MIX1, MIY1, MIX2, MIY2))then
+  begin
+    Mouse(x, y, 5, 5, mouse_left);
+  end else
+    FailOutOfCode('No falador tele tabs were found in your inventory.');
+end;
+
+procedure DepositStuffIntoBank;
+begin
+  if(BankScreen)then
+  begin
+    DepositAll;
+  end;
+end;
+
+procedure WithdrawDesignatedItemQuantity(name: String; quantity: integer);
+var
+  tries, time, i, x, y, bmp: integer;
+  Acc: Extended;
+  found: boolean;
+  BankSlot: TBox;
+  Colors: TIntegerArray;
+  TPA: TPointArray;
+begin
+  if(BankScreen)then
+  begin
+    BankSlot:= BankIndexToMSBox(1);
+    TPAFromBoxWrap(IntToBox(BankSlot.x1, BankSlot.y1, BankSlot.x1+29, BankSlot.y1+29), TPA);
+    GetColorsWrap(TPA, Colors);
+    SMART_DrawDots(tpa);
+    OffsetTPA(TPA, IntToPoint(- (BankSlot.x1), - (BankSlot.y1)));
+    Bmp := BitmapFromString(30, 30, '');
+    FastSetPixels(bmp, TPA, Colors);
+    SMART_DrawDots(tpa);
+    //Done creating bitmap of bankslot 1
+    SearchBank(name);
+    time:= GetSystemTime + 2500;
+    repeat
+      found:= FindDeformedBitmapToleranceIn(Bmp, X, Y, BankSlot.x1, BankSlot.y1, BankSlot.x1+29, BankSlot.y1+29, 0, 0, False, Acc);
+      wait(RandomRange(50,65));
+    until((GetSystemTime > time) or (not found));
+    FreeBitmap(Bmp);
+    if(found)then
+      FailOutOfCode('Ran out of ' + name);
+    MouseBankSlot(1, mouse_right);
+    WaitOptionMulti(['w-'+inttostr(quantity), 'Withdraw-X', 'w-X', 'X'], 1500);
+    for x:=0 to 200 do
+    begin
+      wait(RandomRange(50,65));
+      if(InRange(CountColorTolerance(0, 250, 396, 307, 410, 1), 155, 165))then
+        Break;
+    end;
+    Wait(randomRange(50,100));
+    TypeSend(IntToStr(quantity));
+  end;
+end;
+
+procedure WithdrawBankNewTask;
+var
+  tries, time, i, x, y: integer;
+  found: boolean;
+begin
+  if(BankScreen)then
+  begin
+    WithdrawDesignatedItemQuantity('air rune', 2);
+    BankTab(1);
+    WithdrawDesignatedItemQuantity('cosmic rune', 1);
+    BankTab(1);
+    WithdrawDesignatedItemQuantity('astral rune', 1);
+    CloseBank;
+  end;
+end;
+
+procedure WithdrawBankTrip;
+var
+  tries, time, i, x, y: integer;
+  found: boolean;
+begin
+  if(BankScreen)then
+  begin
+    WithdrawDesignatedItemQuantity('Shark', FoodQuantity);
+    BankTab(1);
+    foodRemaining:= true;
+    WithdrawDesignatedItemQuantity('Falador teleport', 1);
+    BankTab(1);
+    WithdrawDesignatedItemQuantity('Enchanted Gem', 1);
+    BankTab(1);
+    for i:=0 to high(Target.WithdrawNames)do
+    begin
+      WithdrawDesignatedItemQuantity(Target.WithdrawNames[i], Target.WithdrawQuantities[i]);
+      BankTab(1);
+    end;
+    CloseBank;
+  end;
+end;
+
+function DecideOnLoot: boolean;
+var
+  options: Array of TOptions;
+  i, j, lootLen, optionsLen: integer;
+begin
+  i:= GetSystemTime + 5000;
+  repeat
+    options:= GetChooseOptions('');
+    optionsLen:= high(options);
+  until((GetSystemTime > i) or (optionsLen > 0));
+  lootLen:= high(lootList);
+  for i:=0 to optionsLen do
+  begin
+    if(stringMatch(options[i].Str, 'Walk here') >= 0.8)then
+    begin
+      optionsLen:= i;
+      break;
+    end;
+    options[i].Str:= Copy(options[i].Str, 6, Length(options[i].str));//removes 'take '
+  end;
+  for i:=0 to optionsLen do
+  begin
+    for j:=0 to lootLen do
+    begin
+      if(StringMatch(options[i].str, (lootList[j].Name)) >= 0.85)then
+      begin
+        ChooseOption(options[i].Str);
+        GoldEarned:= GoldEarned + lootList[j].Value;
+        RunTextDebug('Actual: ' + options[i].str + ' Read: ' + lootList[j].Name);
+        Result:= true;
+        Exit;
+      end;
+    end;
+  end;
+end;
+
+function FindBones(originPt: TPoint; redBarFound: boolean): boolean;
+var
+  tempCTS, i, atpaLen, x, y, dist: integer;
+  ATPA : T2DPointArray;
+  TPA: TPointArray;
+  lootPt: TPoint;
+begin
+  if((not redBarFound) and (fightCanStart < (GetSystemTime+2500)))then
+  begin
+    dist:= 150;
+  end else
+    dist:= 100;
+  lootPt:= Point(originPt.x+lootOffsetX, originPt.Y+lootOffsetY);
+  tempCTS := GetColorToleranceSpeed; //set CTS
+  ColorToleranceSpeed(2);
+  SetColorSpeed2Modifiers(BoneHue, BoneSat);
+  FindColorsSpiralTolerance(MSCX, MSCY, TPA, BoneCol, MSX1, MSY1, MSX2, MSY2A, BoneTol);
+  SetColorSpeed2Modifiers(0.2, 0.2);
+  ColorToleranceSpeed(tempCTS);
+  ATPA:= SplitTPA(TPA, 3);
+  SortATPAFromMidPoint(ATPA, lootPt);
+  atpaLen:= High(ATPA);
+  for i := 0 to atpaLen do
+  begin
+    If (GetArraylength(ATPA[i]) > boneSize) Then
+    Begin
+      MiddleTPAEx(ATPA[i], x, y);
+      if(Distance(lootPt.X, lootPt.Y, x, y) <= dist)then
+      begin
+        RunObjectDebug(ATPA[i]);
+        MMouse(x, y, 1, 1);
+        ClickMouse2(mouse_right);
+        if(DecideOnLoot)then
+        begin
+          WaitUntilThere;
+          Result := True;
+          Break;
+        end;
+        MMouse(x-58, y-58, 10, 10);
+      end;
+    end;
+  end;
+  repeat
+    ToggleActionBar(True);
+  until(IsActionBarOpen);
+end;
+
+procedure Loot(monsterPt: TPoint);
+var
+  time, x, y: integer;
+  redBarFound: boolean;
+begin
+  time:= GetSystemTime + 1500;
+  RunSmartDebug('Loot');
+  repeat
+    redBarFound:= FindRedBar(x, y);
+    if(redBarFound)then
+      break;
+  until(GetSystemTime > time);
+  if((x=0) and (y=0))then
+  begin
+    x:= monsterPt.x;
+    y:= monsterPt.y;
+    RunTextDebug('No red bar was found, gonna search by x: ' + inttostr(x) + '. y: ' + inttostr(y));
+  end;
+  if(y > MSCY)then
+  repeat
+    ToggleActionBar(False);
+  until(not IsActionBarOpen);
+  wait(3100);
+  if(FindBones(Point(x, y), redBarFound))then
+  begin
+    FTab(tab_Inv);
+    if(InvFull)then
+    begin
+      EatFood;
+    end;
+    if(InvFull)then
+    begin
+      GetToBank;
+      OpenDesiredBank;
+      DepositStuffIntoBank;
+      WithdrawBankTrip;
+    end;
+  end;
+end;
+
+function SearchForMonsters: boolean;
+var
+  monsters: TPointArray;
+  i: integer;
+begin
+  if(not LoggedIn)then
+    LoginSetup;
+  monsters:= GetMiniMapDots('npc');
+  SortTPAFrom(monsters, Point(MMCX, MMCY));
+  for i:= 0 to high(monsters) do
+  begin
+    if(Distance(MMCX, MMCY, monsters[i].x, monsters[i].y) > 10)then
+    begin
+      if(length(GetMiniMapDotsIn('player', (monsters[i].x-13), (monsters[i].y-13), (monsters[i].x+13), (monsters[i].y+13))) = 0)then
+      begin
+        Result:= true;
+        Mouse(monsters[i].x, monsters[i].y+3, 3, 3, mouse_left);
+        FFlag(1);
+        break;
+      end;
+    end;
+  end;
+end;
+
+procedure FightLogic(var monsterPt: TPoint);
+var
+  xpGained, distanceVerified, distanceFinalized, strMatched: boolean;
+  clickPt: TPoint;
+  i: integer;
+begin
+  ToggleActionBar(True);
+  repeat
+    if((not distanceFinalized) and (StringMatch('You can''t see your target.', GetChatBoxText(8, clMessage)) >= 0.75))then
+    begin
+      distanceVerified:= false;
+      distanceFinalized:= true;
+    end;
+    if(not distanceVerified)then
+    begin
+      clickPt:= monsterPt;
+      if((clickPt.x=0) and (clickPt.y=0))then
+      begin
+        clickPt.x:= MSCX;
+        clickPt.y:= MSCY;
+      end;
+      if(clickPt.x>(MSCX+30))then
+      begin
+        clickPt.x:= MSCX+60
+        monsterPt.x:= monsterPt.x-60;
+      end else if(clickPt.X<(MSCX-30))then
+      begin
+        clickPt.x:= MSCX-50
+        monsterPt.x:= monsterPt.x+50;
+      end else
+      begin
+        clickPt.X:= MSCX;
+      end;
+      if(clickPt.y>(MSCY+10))then
+      begin
+        clickPt.y:= MSCY+70
+        monsterPt.y:= monsterPt.y-70;
+      end else if (clickPt.y < (MSCY-40))then
+      begin
+        clickPt.y:= MSCY-45
+        monsterPt.y:= monsterPt.y+45;
+      end;
+      if((clickPt.X<> MSCX) and (clickPt.Y<> MSCY))then
+      begin
+        Mouse(clickPt.x, clickPt.Y, 3, 3, mouse_right);
+        WaitOptionMulti(['Walk', 'lk he', 'here'], 800);
+      end;
+      FFlag(0);
+      distanceVerified:=True;
+    end;
+    if(CurrentHealth <= HealthToEat)then
+    begin
+      EatFood;
+    end;
+    if((not FlagPresent) and (TimeFromMark(TimeOfLastSkill) > waitTimeBetweenSkills))then
+    begin
+      if((ThresholdSlot <> 0) and (GetAdrenalinePercent > 50) and (GetAbilityCooldown(ThresholdSlot) = 100))then
+      begin
+        TimeOfLastSkill:= GetSystemTime;
+        SmartSendKeys(SkillSlots[ThresholdSlot],RandomRange(30,75),RandomRange(30,75));
+        waitTimeBetweenSkills:= RandomRange(300,500);
+      end else if((UltimateSlot <> 0) and (GetAdrenalinePercent = 100) and (CurrentHealth > (MaxHealth / 2)) and (GetAbilityCooldown(UltimateSlot) = 100))then
+      begin
+        TimeOfLastSkill:= GetSystemTime;
+        SmartSendKeys(SkillSlots[UltimateSlot],RandomRange(30,75),RandomRange(30,75));
+        waitTimeBetweenSkills:= RandomRange(300,500);
+      end else begin
+        for i:=1 to 12 do
+        begin
+          if(ActionBarSlotEmpty(i))then
+            Break;
+          if((i <> RegenerateSlot) and (i <> ThresholdSlot) and (i <> UltimateSlot) and (GetAbilityCooldown(i)=100))then
+          begin
+            SmartSendKeys(SkillSlots[i],RandomRange(30,75),RandomRange(30,75));
+            TimeOfLastSkill:= GetSystemTime;
+            waitTimeBetweenSkills:= RandomRange(300,500);
+            break;
+          end;
+        end;
+      end;
+    end;
+    StrMatched:= (StringMatch('You don''t have a target.', GetChatBoxText(8, clMessage)) >= 0.75);
+    xpGained:= GainedSlayerXp;
+  until(xpGained or strMatched or (not HasTargetBar));
+  if(HasTargetBar)then
+  begin
+    fightCanStart:= GetSystemTime+3000;
+  end else
+    RunTextDebug('No target bar.');
+  if(strMatched and (RegenerateSlot <> 0))then
+  begin
+    RunTextDebug('No target string found.');
+    SmartSendKeys(SkillSlots[RegenerateSlot],RandomRange(30,75),RandomRange(30,75));
+  end;
+  if(xpGained)then
+    RunTextDebug('Gained some experience.');
+end;
+
+procedure KillSecondaryMonster;
+var
+  x, y: integer;
+  centerPt: TPoint;
+begin
+  if(Pos('Nechryael', Target.UpText) <> 0)then
+  begin
+    if(FindTarget(x, y, 1846913, 14, 0.13, 0.87, 25, 70, 'Attack Death spawn (level: 136)', false, true))then
+    begin
+      ClickMouse2(mouse_right);
+      WaitOptionMulti(['Atta', 'tack'], 800);
+      for x:=0 to 75 do
+      begin
+        if(HasTargetBar)then
+          Break;
+        Wait(RandomRange(12,25));
+      end;
+      if(not HasTargetBar)then
+        Exit;
+      centerPt:= Point(MSCX, MSCY);
+      FightLogic(centerPt);
+    end;
+  end;
+end;
+
+//Ok, are we in a fight?  and if so, let's finish this to the death!
+function InFightLoop(var monsterPt: TPoint): boolean;
+begin
+  if((fightCanStart < GetSystemTime) and not HasTargetBar)then Exit;
+  RunSmartDebug('InFightLoop');
+  Result:= True;
+  FightLogic(monsterPt);
+  KillSecondaryMonster;
+end;
+
+//Try to start a fight with some punk.
+procedure Fight(var monsterPt: Tpoint);
+var
+  x, y, timeSearchingFight: integer;
+  pt: TPoint;
+  fought: boolean;
+begin
+  RunSmartDebug('Fight');
+  if(not LoggedIn)then
+    LoginSetup;
+  if(Length(GetMinimapDotsin('player',MMCX-45,MMCY-45,MMCX+45,MMCY+45)) > MaxPlayers)then
+  begin
+    ChangeWorlds;
+  end;
+  MarkTime(timeSearchingFight);
+  repeat
+    FFlag(0);
+    fought:= InFightLoop(monsterPt);
+    if((not fought) and FindTarget(x, y, Target.Color, Target.Tolerance, Target.Hue, Target.Sat, Target.MinSize, 500, Target.UpText, true, false))then
+    begin
+      ClickMouse2(mouse_right);
+      WaitOptionMulti(['Atta', 'tack'], 800);
+      FindNormalRandoms;
+      for x:=0 to 75 do
+      begin
+        fought:= InFightLoop(monsterPt);
+        if(fought)then
+          Break;
+        Wait(RandomRange(12,25));
+      end;
+    end;
+  until(fought or (TimeFromMark(timeSearchingFight) > 5000))
+  if((not fought) and (not SearchForMonsters))then
+  begin
+    RunTextDebug('Fought never occurred for some reason.');
+    if(not CheckCurrentAgainstTarget)then
+    begin
+      GaussBox(x, y, Target.Box.X1, Target.Box.y1, Target.Box.X2, Target.Box.y2);
+      if (not SPS_BlindWalk(Point(x, y)))then
+        Target.Walk();
+    end;
+  end else if(LootStuff)then
+    Loot(monsterPt);
+end;
+
+//Use the regenerate skill.  Tap is used to cause a message to check if we're still technically in a fight (a failsafe that is extremely rarely needed - and actually never used as far as I've noticed)
+procedure Regenerate;
+var
+  i, mark: integer;
+  chat: String;
+  centerPt: TPoint;
+begin
+  RunSmartDebug('Regenerate');  
+  if(RegenerateSlot = 0)then
+    Exit;
+  MarkTime(mark);
+  repeat
+    If(HasTargetBar)then
+    begin
+      centerPt:= Point(MSCX, MSCY);
+      InFightLoop(centerPt);
+    end;
+    wait(randomRange(100,200));
+    if(TimeFromMark(Mark) > 15000)then
+      KillSecondaryMonster;
+  until(not InFight or (CurrentHealth < HealthToEscape));
+  if(InFight)then
+  begin
+    GetToBank;
+    OpenDesiredBank;
+    DepositStuffIntoBank;
+    WithdrawBankTrip;
+  end;
+  for i:=0 to 50 do
+  begin
+    wait(randomRange(200,400));
+    if(GetAdrenalinePercent<100)then
+      Break;
+  end;
+  for i:= 0 to 5 do
+  begin
+    SmartSendKeys(SkillSlots[RegenerateSlot],RandomRange(30,75),RandomRange(30,75));
+    RunTextDebug('Regen slot button is ' + skillSlots[RegenerateSlot]);
+    wait(randomRange(200,800));
+    chat:= GetChatBoxText(8, clMessage);
+    if(pos('ot read', chat)<>0)then
+      Break;
+  end;
+  for i:=0 to 30 do
+  begin
+    wait(randomrange(100,200));
+    if(GetAdrenalinePercent < 10)then
+      Exit;
+  end;
+end;
+
+function LoadEquipment(EquipmentSet: String): Array[0..9] of boolean;
+var
+  oldName, dtmString: String;
+begin
+  if(HelmetDTM > 0)then
+    FreeDTM(HelmetDTM);
+  if(CapeDTM > 0)then
+    FreeDTM(CapeDTM);
+  if(AmuletDTM > 0)then
+    FreeDTM(AmuletDTM);
+  if(WeaponDTM > 0)then
+    FreeDTM(WeaponDTM);
+  if(ChestDTM > 0)then
+    FreeDTM(ChestDTM);
+  if(ShieldDTM > 0)then
+    FreeDTM(ShieldDTM);
+  if(LegsDTM > 0)then
+    FreeDTM(LegsDTM);
+  if(GlovesDTM > 0)then
+    FreeDTM(GlovesDTM);
+  if(BootsDTM > 0)then
+    FreeDTM(BootsDTM);
+  if(RingDTM > 0)then
+    FreeDTM(RingDTM);
+
+  oldName:= HelmetName;
+  HelmetName:= ReadINI(EquipmentSet, 'HelmetName', SaveFileName);
+  if(oldName <> HelmetName)then
+    Result[0]:= true;
+  dtmString:= ReadINI(EquipmentSet, 'HelmetDTM', SaveFileName);
+  if(dtmString<> '')then
+    HelmetDTM:=DTMFromString(dtmString);
+  oldName:= CapeName;
+  CapeName:= ReadINI(EquipmentSet, 'CapeName', SaveFileName);
+  if(oldName <> CapeName)then
+    Result[1]:= true;
+  dtmString:= ReadINI(EquipmentSet, 'CapeDTM', SaveFileName);
+  if(dtmString<> '')then
+    CapeDTM:= DTMFromString(dtmString);
+  oldName:= AmuletName;
+  AmuletName:= ReadINI(EquipmentSet, 'AmuletName', SaveFileName);
+  if(oldName <> AmuletName)then
+    Result[2]:= true;
+  dtmString:= ReadINI(EquipmentSet, 'AmuletDTM', SaveFileName);
+  if(dtmString<> '')then
+    AmuletDTM:= DTMFromString(dtmString);
+  oldName:= WeaponName;
+  WeaponName:= ReadINI(EquipmentSet, 'WeaponName', SaveFileName);
+  if(oldName <> WeaponName)then
+    Result[3]:= true;
+  dtmString:= ReadINI(EquipmentSet, 'WeaponDTM', SaveFileName);
+  if(dtmString<> '')then
+    WeaponDTM:= DTMFromString(dtmString);
+  oldName:= ChestName;
+  ChestName:= ReadINI(EquipmentSet, 'ChestName', SaveFileName);
+  if(oldName <> ChestName)then
+    Result[4]:= true;
+  dtmString:= ReadINI(EquipmentSet, 'ChestDTM', SaveFileName);
+  if(dtmString<> '')then
+    ChestDTM:= DTMFromString(dtmString);
+  oldName:= ShieldName;
+  ShieldName:= ReadINI(EquipmentSet, 'ShieldName', SaveFileName);
+  if(oldName <> ShieldName)then
+    Result[5]:= true;
+  dtmString:= ReadINI(EquipmentSet, 'ShieldDTM', SaveFileName);
+  if(dtmString<> '')then
+    ShieldDTM:= DTMFromString(dtmString);
+  oldName:= LegsName;
+  LegsName:= ReadINI(EquipmentSet, 'LegsName', SaveFileName);
+  if(oldName <> LegsName)then
+    Result[6]:= true;
+  dtmString:= ReadINI(EquipmentSet, 'LegsDTM', SaveFileName);
+  if(dtmString<> '')then
+    LegsDTM:= DTMFromString(dtmString);
+  oldName:= GlovesName;
+  GlovesName:= ReadINI(EquipmentSet, 'GlovesName', SaveFileName);
+  if(oldName <> GlovesName)then
+    Result[7]:= true;
+  dtmString:= ReadINI(EquipmentSet, 'GlovesDTM', SaveFileName);
+  if(dtmString<> '')then
+    GlovesDTM:= DTMFromString(dtmString);
+  oldName:= BootsName;
+  BootsName:= ReadINI(EquipmentSet, 'BootsName', SaveFileName);
+  if(oldName <> BootsName)then
+    Result[8]:= true;
+  dtmString:= ReadINI(EquipmentSet, 'BootsDTM', SaveFileName);
+  if(dtmString<> '')then
+    BootsDTM:= DTMFromString(dtmString);
+  oldName:= RingName;
+  RingName:= ReadINI(EquipmentSet, 'RingName', SaveFileName);
+  if(oldName <> RingName)then
+    Result[9]:= true;
+  dtmString:= ReadINI(EquipmentSet, 'RingDTM', SaveFileName);
+  if(dtmString<> '')then
+    RingDTM:= DTMFromString(dtmString);
+end;
+
+//Draw/write up a progress report if desired!
+procedure ProgressReport;
+var
+  combatXp, combatXpHr, slayerXpHr, GoldHr, TimeRan: Int64;
+begin
+  if((not SmartProggy) and (not TextProggy))then
+    Exit;
+  combatXp:= GetXPBar(TotalXpBar) - StartingTotalXp - CurrentSlayerXp;
+  TimeRan:= ((GetSystemTime - TimeBegan) / 1000);  //Seconds
+  combatXpHr:= Round((combatXp * 3600) / TimeRan);
+  slayerXpHr:= Round((CurrentSlayerXp * 3600) / TimeRan);
+  GoldHr:= Round((goldearned * 3600) / TimeRan);
+  if(SmartProggy)then
+  begin
+    SMART_ClearCanvasArea(IntToBox(MCX1, MCY1, MCX2, MCY2));
+    SMART_DrawBitmap(False, ProggyBmp, Point(MCX1, MCY1));
+    SMART_DrawTextEx(False, MCX1+80, MCY1+39, LoginChars, ('Time Running: ' + TimeRunning), 13158600);
+    SMART_DrawTextEx(False, MCX1+80, MCY1+54, LoginChars, ('Combat xp: ' + IntToStr(combatXp) + '  (' + IntToStr(combatXpHr) + ' //hr)'), 13158600);
+    SMART_DrawTextEx(False, MCX1+80, MCY1+69, LoginChars, ('Slayer xp: ' + IntToStr(CurrentSlayerXp) + '  (' + IntToStr(SlayerXpHr) + ' //hr)'), 13158600);
+    SMART_DrawTextEx(False, MCX1+80, MCY1+84, LoginChars, ('Gp earned: ' + IntToStr(goldEarned) + '  (' + IntToStr(GoldHr) + ' //hr)'), 13158600);
+  end;
+  if(TextProggy)then
+  begin
+    ClearDebug;
+    WriteLn('*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~');
+    WriteLn('*Kevin''s Kuradal Slayer');
+    WriteLn('*Time elapsed: ' + TimeRunning);
+    WriteLn('*We have gained ' + IntToStr(combatXp) + ' Combat Experience! (' + IntToStr(combatXpHr) + '/hr)');
+    WriteLn('*We have gained ' + IntToStr(CurrentSlayerXp) + ' Slayer Experience! (' + IntToStr(SlayerXpHr) + '/hr)');
+    WriteLn('*We have earned ' + IntToStr(GoldEarned) + ' gold! (' + IntToStr(GoldHr)  + '/hr)');
+    WriteLn('*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~');
+  end;
+end;
+
+procedure SafetyChecks;
+begin
+  if(not LoggedIn)then
+    LoginSetup;
+  if(CurrentHealth <= HealthToEat)then
+    EatFood;
+  if(CurrentHealth <= HealthToEscape)then
+  begin
+    GetToBank;
+    OpenDesiredBank;
+    DepositStuffIntoBank;
+    WithdrawBankTrip;
+  end;
+end;
+
+function FindDesiredBitmap(bmp, xs, ys, xe, ye: integer; var x, y: integer): boolean;
+var
+  acc: extended;
+begin
+  if(FindDeformedBitmapToleranceIn(bmp, x, y, xs, ys, xe, ye, 20, 2, false, acc))then
+    Result:= (acc > 0.75);
+end;
+
+Procedure WaitTillNextScreen;
+var
+  mark, count: integer;
+Begin
+  count:= CountColorTolerance(7448536, MCX1, MCY1, MCX2, MCY2, 32);
+  MarkTime(mark);
+  Repeat
+    wait(randomRange(50,75));
+  Until((Abs(CountColorTolerance(7448536, MCX1, MCY1, MCX2, MCY2, 32) - count) > 100) or (TimeFromMark(Mark) > 5000));
+End;
+
+function RemoteContactScreenExists: boolean;
+begin
+  Result:= (CountColorTolerance(2763306, MSX1, MSY1, MSX2, MSY2, 10) > 50000);
+end;
+
+function MonsterMatch(var monName: String): boolean;
+var
+  x: integer;
+begin
+  for x:=0 to high(MonsterList) do
+  begin
+    if(StringMatch(Lowercase(monName), Lowercase(MonsterList[x])) > 0.9)then
+    begin
+      monName:= MonsterList[x];
+      Result:= True;
+      Exit;
+    end;
+  end;
+end;
+
+function GetCurrentTask(var monName: String; var killsLeft: integer): boolean;
+var
+  x, y, timer: integer;
+  chatMessage: String;
+begin
+  timer:= GetSystemTime+5000;
+  repeat
+    GameTab(tab_inv);
+  until((GetCurrentTab = tab_inv) or (GetSystemTime > timer));
+  if FindDTM(GemDTM,x,y,MIX1, MIY1, MIX2, MIY2) then
+  begin
+    Result:= true;
+    BrakeMMouse(x, y, 5, 5);
+    ClickMouse2(Mouse_right);
+    WaitOptionAcc('Kills-left Enchanted gem', 0.7, 1200);
+    timer:= GetSystemTime+5000;
+    repeat
+      chatMessage:= GetChatBoxText(8, clMessage);
+      try
+        killsLeft:= StrToInt(GetNumbers(chatMessage));
+        x:= pos('ment is', chatMessage);
+        if(x > 15)then
+        begin
+          x:=x+10;
+          for y:=x to (length(chatMessage)-10)do
+          begin
+            if(not (IsAlpha(chatMessage[y]) or (chatMessage[y]=' ')))then
+              Break;
+          end;
+          monName:= Copy(chatMessage, x, (y-x-1));
+          break;
+        end;
+      except
+      end;
+    until(((killsLeft > 0) and (MonsterMatch(monName))) or (timer < GetSystemTime));
+  end;
+  if(timer < GetSystemTime)then
+    FailOutOfCode('We were unable to grab the current running task.\nRead from chat: ' + chatMessage + '\nMonster name determined: ' + monName + '\nKills left determined: ' + inttostr(killsLeft));
+end;
+
+procedure StartTask(x, y: integer);
+var
+  monName: String;
+  i: integer;
+  equipmentChanged: array of boolean;
+begin
+  BrakeMMouse(x, y, 15, 15);
+  ClickMouse2(mouse_left);
+  WaitTillNextScreen;
+  TypeByte(VK_SPACE);
+  WaitTillNextScreen;
+  TypeByte(VK_SPACE);
+  WaitTillNextScreen;
+  TypeByte(VK_SPACE);
+  WaitTillNextScreen;
+  TypeByte(VK_SPACE);
+  WaitTillNextScreen;
+  TypeByte(VK_SPACE);
+  WaitTillNextScreen;
+  TypeSendEx('1', False);
+  WaitTillNextScreen;
+  TypeByte(VK_SPACE);
+  WaitTillNextScreen;
+  GetCurrentTask(monName, currentTargetsLeft);
+  SetupAttackTarget(monName);
+  equipmentChanged:= LoadEquipment(ReadINI(MonName, 'EquipmentSetting', SaveFileName));
+  OpenDesiredBank;
+  for i:=0 to high(equipmentChanged) do
+  begin
+    if(equipmentChanged[i])then
+    begin
+      SearchBank('');
+      
+    end;
+  end;
+end;
+
+procedure GetNewTask;
+var
+  kuradalBMP, x, y, holdX, holdY: integer;
+begin
+  CastSpell(AB_SKILLING_SPELLS, 1, 3);//Lunar remote contact
+  kuradalBMP:= BitmapFromString(17, 17, 'meJxlkv9PEmEcx/+S1iyEA/meSGv9Wls20VHWKqmphYTyRRBvjAi90akEMmIYIwgV53Ct5mqtVv9cr8dHLrLttdtz93xe77vP57nau2aj0W61Dj52jw8PT/b3+8AaOp2jD+0eW81md+99Z2enurGhq2p+a6tSelvb3W3Uzlyo11vAgoflcp1dijVtO5fbzKzn4vH0ysrqq7yGXiyW2CKBK2UUv9HLrwtFKrPZQjKZiUYTgUAwGHxgn6sBt7gkUINOJglEydhIJDZyKzZyOwFX7qQdz/ac800DXL6WWMLTa1lyqIGrkxkw3VVNU1nX8w64X3QlrsV2OLzMZ6RSKvrodH40kBOwmM6bZwqW4KYnciTxvjwGz1KPBIrnQvO2R2VlVlfuFy33NGAhmNWvxT79w/IJOq9zLrQcTxu0aXtcwbU+LAELbn3JU9/q178kT6U7nvgiRRqkX3uoLgbFNVT3r/24gM1TsbnLVldJceoWh+YOH4geaXmxLUa00Lqu/has/wJ/5ieMearDiuh0qQfCPeNcGVhgKFbX9rkyZPEuYi9Yw4riKIoxDizZ2kT6u7AGr0D8X5EW+cwQmNJE6htdG+0QwsPx+Gc5c2+0j0L7cuag+G4yWMMS9YM5G+fLxJgzJ3LZ6gKz94bJ7QdREO0TLmO5yv9n7EmVE79ktst6+AMxZGdJ');
+  if(FindDesiredBitmap(kuradalBMP, MSX1, MSY1, MSX2, MSY2, x, y))then
+  begin
+    StartTask(x, y);
+  end else begin
+    MouseBox(484, 307, 490, 313, mouse_move);
+    GetMousePos(holdX, holdY);
+    HoldMouse(holdX, holdY, mouse_left);
+    x:= 0;
+    repeat
+      Inc(x);
+      wait(randomRange(10,20));
+    until(FindDesiredBitmap(kuradalBMP, MSX1, MSY1, MSX2, MSY2, x, y) or (x>250) or not RemoteContactScreenExists);
+    ReleaseMouse(holdX, holdY, mouse_left);
+    if(not FindDesiredBitmap(kuradalBMP, MSX1, MSY1, MSX2, MSY2, x, y))then
+    begin
+      FreeBitmap(kuradalBMP);
+      FailOutOfCode('The desired master (Kuradal) was not found in the list.');
+    end;
+    StartTask(x, y);
+    Target.Walk();
+  end;
+  FreeBitmap(kuradalBMP);
+end;
+
+procedure ChangeEquipment;
+begin
+end;
+
+//Is our current task complete due to some reason?
+procedure CheckTaskComplete;
+var
+  chat, monName: string;
+  taskDone: boolean;
+begin
+  RunSmartDebug('CheckTaskComplete');
+  chat:= GetChatBoxText(8, 28895);
+  if((pos('new to hunt', chat) <> 0) or (pos('return to a Sl', chat) <> 0))then
+    taskDone:= True;
+  if(currentTargetsLeft <= 0)then
+    taskDone:= True;
+  if(taskDone)then
+  begin
+    GetCurrentTask(monName, currentTargetsLeft);
+    if(currentTargetsLeft <= 0)then
+    begin
+      GetToBank;
+      OpenDesiredBank;
+      DepositStuffIntoBank;
+      WithdrawBankTrip;
+      GetNewTask;
+      ChangeEquipment;
+    end;
+  end;
+end;
+
+procedure CheckTaskScriptStart;
+var
+  chat, monName: string;
+begin
+  GetCurrentTask(monName, currentTargetsLeft);
+  if(currentTargetsLeft <= 0)then
+  begin
+    if(not OpenDesiredBank)then
+    begin
+      GetToBank;
+      OpenDesiredBank;
+    end;
+    WithdrawBankNewTask;
+    GetNewTask;
+    OpenDesiredBank;
+    WithdrawBankTrip;
+    ChangeEquipment;
+  end else
+    SetupAttackTarget(monName);
+end;
+
+//Lets just setup the stuff that only has to happen once, but has to happen after we login
+procedure PostLoginOneTimeSetup;
+var
+  i, x, y: integer;
+  box: TBox;
+  acc: Extended;
+begin
+  SRL_Procs[srl_OnRSUpdate] := @NewSmart;
+  i:= GetSystemTime+5000;
+  repeat
+    ToggleActionBar(true);
+    wait(50);
+  until(IsActionBarOpen or (GetSystemTime > i));
+  for i:=1 to 12 do
+  begin
+    SkillSlots[i]:= Lowercase(GetKeyBind(i));
+    RunTextDebug('Skill slot ' + inttostr(i) + ' is ' + skillslots[i]);
+    if(AbilityInSlot(AB_REGENERATE, i))then
+      RegenerateSlot:= i;
+  end;
+  if(RegenerateSlot=0)then
+  begin
+    RunTextDebug('We did not find regenerate on your bar, that means it will not be used.');
+  end;
+  StartingTotalXP := GetXPBar(TotalXpBar);
+  StartingSlayerXP := GetXPBar(SlayerXpBar);
+  TimeBegan := GetSystemTime;
+  ExitSquealOfFortune;
+  FTab(tab_Inv);
+  if(DTMExists(foodDTM))then
+  begin
+    if(FindDTM(foodDTM, x, y, MIX1, MIY1, MIX2, MIY2))then
+      foodRemaining:= true;
+  end;
+  MaxHealth:= GetMaxHP;
+  CheckTaskScriptStart;
+end;
+
+//main loop!
+procedure mainLoop;
+var
+  monsterPt: TPoint;
+begin
+  repeat
+    repeat
+      FindSpinTicket;
+      FindNormalRandoms;
+      monsterPt:= Point(MSCX, MSCY);
+      Fight(monsterPt);
+      if((RegenerateSlot <> 0) and (CurrentHealth < (MaxHealth / 2)) and (GetAbilityCooldown(RegenerateSlot) = 100) and (GetAdrenalinePercent>90))then
+      begin
+        Regenerate;
+      end;
+      ProgressReport;
+      FindNormalRandoms;
+      SafetyChecks;
+      TryBreakOrFinish;
+    until(not LoggedIn);
+  until(not LoginSetup);
+end;
+
+var
+  uselessX, uselessY: integer;
+  name: String;
+begin
+  CheckForUpdates;
+  MonsterList:= ['Aberrant Spectre', 'Abyssal Demon', 'Ascension', 'Automaton', 'Avianse', 'Black Demon', 'Black Dragon', 'Bloodveld', 'Blue Dragon', 'Dagannoth', 'Dark Beast', 'Desert Strykewyrm', 'Dust Devil', 'Fire Giant', 'Ganodermic', 'Gargoyle', 'Greater Demon', 'Grifolapine', 'Grifolaroo', 'Grotworm', 'Hellhound', 'Iron Dragon', 'Jungle Strykewyrm', 'Kalphite', 'Living Rock', 'Mithril Dragon', 'Mutated Jadinko', 'Nechryael', 'Skeletal Wyvern', 'Spiritual Mage', 'Steel Dragon', 'Suqah', 'Tzhaar', 'Warped Tortoise', 'Waterfiend'];
+  ThreadSafeCall('InitialiseForm', params);
+  ThreadSafeCall('ShowModal', params);
+  if(not FormSaved)then
+    TerminateScript;
+  SetUpSRL;
+  SetupVariables;
+  Addonterminate('FreeMyDTMs');
+  RunTextDebug('setup');
+  DeclarePlayers;
+  LoginSetup;
+  RunTextDebug('logged in');
+  PostLoginOneTimeSetup;
+  RunTextDebug('Main loop starting');
+  if(not FindTarget(uselessX, uselessY, Target.Color, Target.Tolerance, Target.Hue, Target.Sat, Target.MinSize, 500, Target.UpText, true, false))then
+    Target.Walk();
+  mainLoop;
+  FailOutOfCode('Logging back in failed.  Sorry.');
+end.

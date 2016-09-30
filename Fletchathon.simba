@@ -1,0 +1,275 @@
+program Fletchathon;
+{$i ezForm.simba}
+{$i ogLib\lib\core\core.simba}
+
+const
+  scriptVersion = '1.0';
+  mainScreenX = 576;
+  mainScreenY = 378;
+
+var
+  clientcenter: Tpoint;
+  failureCD: tCountDown;
+  count: integer;
+  mainScreenBox: TBox;
+
+
+procedure AmIBrowsingAnotherWindow();
+begin
+  if(random(1, 100) < 88)then
+  begin
+    mouse.move(Point(random(810, 1280), random(610, 960)));
+  end;
+end;
+
+procedure antiban();
+begin
+  if(randomRange(1, 49) = 1)then
+  begin
+    wait(randomRange(60000, 180000));
+  end;
+end;
+
+//Written by Clarity
+function getTime(time: uint32): string;
+var
+  h, m, s: integer;
+begin
+  s := time mod 3600000 mod 60000 div 1000;
+  m := time mod 3600000 div 60000;
+  h := time div 3600000;
+  result:= (toStr(h) + ' h ' + toStr(m) + ' m ' + toStr(s) + ' s');
+end;
+
+procedure proggy();
+var
+  bowsPerHour: integer;
+  time: string;
+begin
+  count:= count + 14;
+  bowsPerHour := round(count * (3600.0 / (getTimeRunning / 1000.0)));
+  time := getTime(getTimeRunning());
+  ClearDebug();
+  writeln('We''ve been running for ' + time);
+  writeln(inttoStr(count) + ' bows made.');
+  writeln(inttoStr(bowsPerHour) + ' bows per hour');
+end;
+
+procedure printAllModelDuplicates();
+var
+  found: boolean;
+  chest, all: glModelArray;
+  i, j: integer;
+begin
+  chest := ogl.getModels();
+  all:= ogl.getModels();
+  for i:=0 to high(chest) do
+  begin
+    found:= false;
+    for j:=0 to high(chest) do
+    begin
+      if(i <> j) and (chest[i].ID = all[j].ID)then
+      begin
+        found:= true;
+      end;
+      {if(i <> j) and (chest[i].ID = all[j].ID) and (chest[i].X <> all[j].X)then
+      begin
+        write(chest[i]);
+        write(' and ');
+        writeln(all[j]);
+      end;}//Duplicate check
+    end;
+    if(not found)then
+    begin
+      writeln(chest[i]);
+    end;
+  end;
+end;
+
+function inTheMiddle(check, beginningPoint, endPoint: integer): boolean;
+begin
+  result:= (check > beginningPoint) and (check < endPoint);
+end;
+
+procedure printAllTexturesInArea(x1, y1, x2, y2: integer);
+var
+  all: glTextureArray;
+  i: integer;
+begin
+  all:= ogl.getTextures();
+  for i:=0 to high(all) do
+  begin
+    if(inTheMiddle(all[i].bounds.x1, x1, x2) and inTheMiddle(all[i].bounds.x2, x1, x2) and inTheMiddle(all[i].bounds.y1, y1, y2) and inTheMiddle(all[i].bounds.y2, y1, y2))then
+    begin
+      writeln(all[i]);
+    end;
+  end;
+end;
+
+function MainLoop(): boolean;
+var
+  chest: glModelArray;
+  log, bowstring, fletchScreen, stringScreen, processScreen, knifeScreen: glTextureArray;
+  clickPoint: TPoint;
+  found: boolean;
+  matchPercent: extended;
+begin
+  chest:= ogl.getModels(2783808500, mainScreenBox);
+  if(not chest.isEmpty()) then
+  begin
+    //mouse.clickAction(clientCenter.closest(chest)[0].randomizePointEllipse(15)
+    mouse.move(clientCenter.closest(chest)[0].randomizePointEllipse(15));
+    matchPercent:= StringMatch(mouse.getTooltip(), 'Use Bank chest');
+    if(matchPercent >= 0)then//Fix this
+    begin
+      found:= true;
+      GetMousePos(clickPoint.x, clickPoint.y);
+      ClickMouse(clickPoint.x, clickPoint.y, mouse_Left);
+    end;
+  end;
+
+  found:= false;
+
+  failureCD.setTime(10000);
+  repeat
+    wait(Random(300,975));
+  until (bank.hasBank or failureCD.isFinished());
+
+  if(not bank.hasBank)then
+  begin
+    exit;
+  end;
+
+  failureCD.setTime(10000);
+  repeat
+    sendKeys('2', 60 + random(60), 60 + random(60));
+    wait(random(300,500));
+    if(not bank.hasBank)then
+    begin
+      wait(Random(300,975));
+    end;
+  until (not bank.hasBank or failureCD.isFinished());
+
+  if(bank.hasBank)then
+  begin
+    exit;
+  end;
+
+  //Banking done, verify logs and string in inventory
+  log:= ogl.getTextures(123420);
+  bowstring:= ogl.getTextures(69105);
+  if(log.isEmpty() or bowstring.isEmpty())then
+  begin
+    exit;
+  end;
+
+  //Fletch them
+  mouse.click(log[0].bounds, 1);
+
+  //wait for any window to pop up
+  failureCD.setTime(5000);
+  repeat
+    fletchScreen:= ogl.getTextures(55335, mainScreenBox);
+    knifeScreen:= ogl.getTextures(2244000, mainScreenBox);
+    wait(Random(300,975));
+  until ((fletchScreen.indexes() > 0 or knifeScreen.indexes() > 0) or failureCD.isFinished());
+
+  //See if 'What do you want to use on the logs?' window is up
+{  if(not knifeScreen.isEmpty())then
+  begin
+    writeln('Found the "What do you want to use on the logs?" screen.  Only expect this once per login.');
+    mouse.click(knifeScreen[0].bounds, 1);
+    failureCD.setTime(10000);
+    repeat
+      knifeScreen:= ogl.getTextures(2244000);
+      wait(random(700,1300));
+    until (knifeScreen.indexes() = 0 or failureCD.isFinished());
+    if(knifeScreen.indexes() <> 0)then
+    begin
+      writeln('Could not close the knife screen');
+      exit;
+    end;
+  end;
+}
+  failureCD.setTime(10000);
+  repeat
+    fletchScreen:= ogl.getTextures(55335);
+    wait(Random(300,975));
+  until (fletchScreen.indexes() > 0 or failureCD.isFinished());
+  if(fletchScreen.indexes() = 0)then
+  begin
+    writeln('Fletch screen never popped up.');
+    exit;
+  end;
+  sendKeys(' ', 60 + random(60), 60 + random(60));
+  failureCD.setTime(10000);
+  repeat
+    wait(Random(300,975));
+    fletchScreen:= ogl.getTextures(55335);
+  until (fletchScreen.indexes() = 0 or failureCD.isFinished());
+  if(fletchScreen.indexes() > 0)then
+  begin
+    writeln('Could not close the fletch screen.');
+    exit;
+  end;
+
+  //wait till fletching done.
+  AmIBrowsingAnotherWindow();
+  failureCD.setTime(60000);
+  repeat
+    processScreen:= ogl.getTextures(228480);
+    wait(Random(300,975));
+  until (processScreen.indexes() = 0 or failureCD.isFinished());
+
+
+  //String them
+  mouse.click(bowstring[0].bounds, 1);
+  failureCD.setTime(10000);
+  repeat
+    stringScreen:= ogl.getTextures(55335);
+    wait(Random(300,975));
+  until (stringScreen.indexes() > 0 or failureCD.isFinished());
+
+  if(stringScreen.indexes() > 0)then
+  begin
+    sendKeys(' ', 60 + random(60), 60 + random(60));
+    failureCD.setTime(10000);
+    repeat
+    wait(Random(300,975));
+      stringScreen:= ogl.getTextures(55335);
+    until (stringScreen.indexes() = 0 or failureCD.isFinished());
+  end else begin
+    exit;
+  end;
+
+  if(stringScreen.indexes() > 0)then
+  begin
+    exit;
+  end;
+
+  //wait till fletching done.
+  AmIBrowsingAnotherWindow();
+  failureCD.setTime(60000);
+  repeat
+    processScreen:= ogl.getTextures(228480);
+    wait(Random(300,975));
+  until (processScreen.indexes() = 0 or failureCD.isFinished());
+  if(processScreen.indexes() = 0)then
+  begin
+    proggy;
+    result:= true;
+  end;
+end;
+
+begin
+  mainScreenBox:= IntToBox(0, 0, mainScreenX, mainScreenY);
+  ogl.setup([800, 600], [0, 0, mainScreenX, mainScreenY]);
+  ogl.setDebugMode('n');
+  clientCenter := ogl.getClientMidPoint();
+  count:= 0;
+  //printAllModelDuplicates;
+  {printAllTexturesInArea(0, 0, 800, 600);
+  exit;{}
+  repeat
+  until (not MainLoop());
+end.

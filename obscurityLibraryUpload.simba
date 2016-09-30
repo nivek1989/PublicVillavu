@@ -1,0 +1,4743 @@
+  {$include_once GLX/GLXCore.Simba}
+  {$include_once GLX/Misc/Smart.Simba}
+  {$include_once GLX/Misc/Graphics.Simba}
+  {$include_once GLX/Mouse.Simba}
+  {$include_once GLX/Login.Simba}
+  {$include_once GLX/Text.Simba}
+  {$include_once GLX/Bank.Simba}
+  {$include_once GLX/Inventory.Simba}
+  {$include_once GLX/Timing.Simba}
+  {$include_once GLX/Minimap.Simba}
+  {$include_once GLX/Interfaces.Simba}
+  {$include_once GLX/Setup.Simba}
+
+  var
+    __glModelArray:tCardinalArray;
+      __glTextureArray:tIntegerArray;
+
+    obsDebug:boolean=false;
+
+  type countDown=record
+    time:integer;
+  end;
+
+  function countDown.setTime(timeToAdd:integer):integer;
+    begin
+      time:=getSystemTime+timeToAdd;
+    end;
+
+  function countDown.timeRemaining():integer;
+    begin
+      if (not self.isFinished()) then
+        result:=time-getSystemTime
+      else
+        result:=0;
+    end;
+
+  function countDown.isFinished():boolean;
+    begin
+      if getSystemTime()>time then
+        result:=true;
+    end;
+
+  function randomChance(chance:integer):boolean;
+    begin
+      result:=random(chance)=0;
+    end;
+
+  procedure obs(debugMessage:string;critical:boolean=false);
+    begin
+      if obsDebug or critical then
+        writeLN('['+toStr(getSystemTime)+' - obsDebug] '+debugMessage);
+    end;
+
+  procedure obsNudgeMouse(chanceToRepeat:integer=0;maxDistance:integer=120);
+    var
+      clientHeight,
+        clientWidth,
+        currentX,
+        currentY,
+        newX,
+        newY:integer;
+    begin
+      getClientDimensions(clientWidth,clientHeight);
+      getMousePos(currentX,currentY);
+      newX:=currentX+random(maxDistance*-1,maxDistance);
+      newY:=currentY+random(maxDistance*-1,maxDistance);
+      newX:=max(0,min(clientWidth,newX));
+      newY:=max(0,min(clientHeight,newY));
+      mouse(point(newX,newY));
+      if randomChance(chanceToRepeat) then
+        obsNudgeMouse(maxDistance);
+    end;
+
+  function obsClickOption(positionClick:tPoint;option:ansiString):boolean;
+    label
+      hideMenu;
+    var
+      boxMenu:tBox=[2147483647,2147483647,0,0];
+      charArrayMenu:glCharArray;
+      dimensionsHeight,
+        dimensionsWidth:integer;
+      hideBox:tBoxArray;
+      indexBox,
+        indexChar,
+        indexCorner,
+        indexText:cardinal=0;
+      optionTemp:ansiString;
+      textArrayMenu:glTextArray;
+      textureArrayCorner:glTextureArray;
+      timeOut:countDown;
+    begin
+      mouse(point(positionClick.x,positionClick.y),0);
+      timeOut.setTime(500);
+      while (textureArrayCorner:=glGetTextures([6120,8925]).extractColourID([5921370,4079167],4)).isEmpty() and (not timeOut.isFinished()) do
+        continue;
+      if textureArrayCorner.isEmpty() then
+        exit;
+      for indexCorner to 3 do
+        begin
+          boxMenu.x1:=min(boxMenu.x1,textureArrayCorner[indexCorner].bounds.x1+3);
+          boxMenu.y1:=min(boxMenu.y1,textureArrayCorner[indexCorner].bounds.y1+21);
+          boxMenu.x2:=max(boxMenu.x2,textureArrayCorner[indexCorner].bounds.x2-3);
+          boxMenu.y2:=max(boxMenu.y2,textureArrayCorner[indexCorner].bounds.y2-5);
+        end;
+      setLength(textArrayMenu,boxMenu.height() div 16);
+      for indexText to (boxMenu.height() div 16)-1 do
+        begin
+          charArrayMenu:=glGetChars(intToBox(boxMenu.x1,boxMenu.y1+indexText*16,boxMenu.x2,boxMenu.y1+(indexText+1)*16)).extractID([17,91]).extractColourID(0);
+          if charArrayMenu.isEmpty() then
+            goTo hideMenu;
+          textArrayMenu[indexText].bounds:=intToBox(boxMenu.x1,boxMenu.y1+indexText*16,boxMenu.x2,boxMenu.y1+(indexText+1)*16);
+          for indexChar:=0 to charArrayMenu.maxIndex() do
+            if execRegExpr('[a-zA-Z0-9]',charArrayMenu[indexChar].letter) then
+              textArrayMenu[indexText].text:=textArrayMenu[indexText].text+lowercase(charArrayMenu[indexChar].letter);
+        end;
+      option:=replaceRegExpr('(\W|_)*',lowercase(option),'',false);
+      for indexText:=0 to textArrayMenu.maxIndex() do
+        begin
+          if pos(option,textArrayMenu[indexText].text)>0 then
+            begin
+              mouseBox(textArrayMenu[indexText].bounds,1);
+              result:=true;
+              break;
+            end;
+        end;
+      if (not result) then
+        begin
+          hideMenu:
+          getClientDimensions(dimensionsWidth,dimensionsHeight);
+          boxMenu.x1:=boxMenu.x1-3-10;
+          boxMenu.y1:=boxMenu.y1-21-10;
+          boxMenu.x2:=boxMenu.x2+3+10;
+          boxMenu.y2:=boxMenu.y2+5+10;
+          setLength(hideBox,8)
+          if boxMenu.y1>=0 then
+            begin
+              if boxMenu.x1>=0 then
+                begin
+                  hideBox[indexBox]:=intToBox(max(0,boxMenu.x1-50),max(0,boxMenu.y1-50),boxMenu.x1,boxMenu.y1);
+                  indexBox:=indexBox+1;
+                end;
+              hideBox[indexBox]:=intToBox(boxMenu.x1,max(0,boxMenu.y1-50),boxMenu.x2,boxMenu.y1);
+              indexBox:=indexBox+1;
+              if boxMenu.x2<=dimensionsWidth then
+                begin
+                  hideBox[indexBox]:=intToBox(boxMenu.x2,max(0,boxMenu.y1-50),min(dimensionsWidth,boxMenu.x2+50),boxMenu.y1);
+                  indexBox:=indexBox+1;
+                end;
+            end;
+          if boxMenu.x1>=0 then
+            begin
+              hideBox[indexBox]:=intToBox(max(0,boxMenu.x1-50),boxMenu.y1,boxMenu.x1,boxMenu.y2);
+              indexBox:=indexBox+1;
+            end;
+          if boxMenu.x2<=dimensionsWidth then
+            begin
+              hideBox[indexBox]:=intToBox(boxMenu.x2,boxMenu.y1,min(dimensionsWidth,boxMenu.x2+50),boxMenu.y2);
+              indexBox:=indexBox+1;
+            end;
+          if boxMenu.y2<=dimensionsHeight then
+            begin
+              if boxMenu.x1>=0 then
+                begin
+                  hideBox[indexBox]:=intToBox(max(0,boxMenu.x1-50),boxMenu.y2,boxMenu.x1,min(dimensionsHeight,boxMenu.y2+50));
+                  indexBox:=indexBox+1;
+                end;
+              hideBox[indexBox]:=intToBox(boxMenu.x1,boxMenu.y2,boxMenu.x2,min(dimensionsHeight,boxMenu.y2+50));
+              indexBox:=indexBox+1;
+              if boxMenu.x2<=dimensionsWidth then
+                begin
+                  hideBox[indexBox]:=intToBox(boxMenu.x2,boxMenu.y2,min(dimensionsWidth,boxMenu.x2+50),min(dimensionsHeight,boxMenu.y2+50));
+                  indexBox:=indexBox+1;
+                end;
+            end;
+          setLength(hideBox,indexBox);
+          mouseBox(hideBox[random(indexBox)],3);
+        end;
+    end;
+
+  function obsClickOption(positionClick:tPoint;option:tStringArray):boolean;overload;
+    label
+      hideMenu;
+    var
+      boxMenu:tBox=[2147483647,2147483647,0,0];
+      charArrayMenu:glCharArray;
+      dimensionsHeight,
+        dimensionsWidth:integer;
+      hideBox:tBoxArray;
+      indexBox,
+        indexChar,
+        indexCorner,
+        indexOption,
+        indexText:cardinal=0;
+      optionTemp:ansiString;
+      textArrayMenu:glTextArray;
+      textureArrayCorner:glTextureArray;
+      timeOut:countDown;
+    begin
+      mouse(point(positionClick.x,positionClick.y),0);
+      timeOut.setTime(500);
+      while (textureArrayCorner:=glGetTextures([6120,8925]).extractColourID([5921370,4079167],4)).isEmpty() and (not timeOut.isFinished()) do
+        continue;
+      if textureArrayCorner.isEmpty() then
+        exit;
+      for indexCorner to 3 do
+        begin
+          boxMenu.x1:=min(boxMenu.x1,textureArrayCorner[indexCorner].bounds.x1+3);
+          boxMenu.y1:=min(boxMenu.y1,textureArrayCorner[indexCorner].bounds.y1+21);
+          boxMenu.x2:=max(boxMenu.x2,textureArrayCorner[indexCorner].bounds.x2-3);
+          boxMenu.y2:=max(boxMenu.y2,textureArrayCorner[indexCorner].bounds.y2-5);
+        end;
+      setLength(textArrayMenu,boxMenu.height() div 16);
+      for indexText to (boxMenu.height() div 16)-1 do
+        begin
+          charArrayMenu:=glGetChars(intToBox(boxMenu.x1,boxMenu.y1+indexText*16,boxMenu.x2,boxMenu.y1+(indexText+1)*16)).extractID([17,91]).extractColourID(0);
+          if charArrayMenu.isEmpty() then
+            goTo hideMenu;
+          textArrayMenu[indexText].bounds:=intToBox(boxMenu.x1,boxMenu.y1+indexText*16,boxMenu.x2,boxMenu.y1+(indexText+1)*16);
+          for indexChar:=0 to charArrayMenu.maxIndex() do
+            if execRegExpr('[a-zA-Z0-9]',charArrayMenu[indexChar].letter) then
+              textArrayMenu[indexText].text:=textArrayMenu[indexText].text+lowercase(charArrayMenu[indexChar].letter);
+        end;
+      for indexOption to option.maxIndex() do
+        begin
+          option[indexOption]:=replaceRegExpr('(\W|_)*',lowercase(option[indexOption]),'',false);
+          for indexText:=0 to textArrayMenu.maxIndex() do
+            begin
+              if pos(option[indexOption],textArrayMenu[indexText].text)>0 then
+                begin
+                  mouseBox(textArrayMenu[indexText].bounds,1);
+                  result:=true;
+                  break;
+                end;
+            end;
+          if result then
+            break;
+        end;
+      if (not result) then
+        begin
+          hideMenu:
+          getClientDimensions(dimensionsWidth,dimensionsHeight);
+          boxMenu.x1:=boxMenu.x1-3-10;
+          boxMenu.y1:=boxMenu.y1-21-10;
+          boxMenu.x2:=boxMenu.x2+3+10;
+          boxMenu.y2:=boxMenu.y2+5+10;
+          setLength(hideBox,8)
+          if boxMenu.y1>=0 then
+            begin
+              if boxMenu.x1>=0 then
+                begin
+                  hideBox[indexBox]:=intToBox(max(0,boxMenu.x1-50),max(0,boxMenu.y1-50),boxMenu.x1,boxMenu.y1);
+                  indexBox:=indexBox+1;
+                end;
+              hideBox[indexBox]:=intToBox(boxMenu.x1,max(0,boxMenu.y1-50),boxMenu.x2,boxMenu.y1);
+              indexBox:=indexBox+1;
+              if boxMenu.x2<=dimensionsWidth then
+                begin
+                  hideBox[indexBox]:=intToBox(boxMenu.x2,max(0,boxMenu.y1-50),min(dimensionsWidth,boxMenu.x2+50),boxMenu.y1);
+                  indexBox:=indexBox+1;
+                end;
+            end;
+          if boxMenu.x1>=0 then
+            begin
+              hideBox[indexBox]:=intToBox(max(0,boxMenu.x1-50),boxMenu.y1,boxMenu.x1,boxMenu.y2);
+              indexBox:=indexBox+1;
+            end;
+          if boxMenu.x2<=dimensionsWidth then
+            begin
+              hideBox[indexBox]:=intToBox(boxMenu.x2,boxMenu.y1,min(dimensionsWidth,boxMenu.x2+50),boxMenu.y2);
+              indexBox:=indexBox+1;
+            end;
+          if boxMenu.y2<=dimensionsHeight then
+            begin
+              if boxMenu.x1>=0 then
+                begin
+                  hideBox[indexBox]:=intToBox(max(0,boxMenu.x1-50),boxMenu.y2,boxMenu.x1,min(dimensionsHeight,boxMenu.y2+50));
+                  indexBox:=indexBox+1;
+                end;
+              hideBox[indexBox]:=intToBox(boxMenu.x1,boxMenu.y2,boxMenu.x2,min(dimensionsHeight,boxMenu.y2+50));
+              indexBox:=indexBox+1;
+              if boxMenu.x2<=dimensionsWidth then
+                begin
+                  hideBox[indexBox]:=intToBox(boxMenu.x2,boxMenu.y2,min(dimensionsWidth,boxMenu.x2+50),min(dimensionsHeight,boxMenu.y2+50));
+                  indexBox:=indexBox+1;
+                end;
+            end;
+          setLength(hideBox,indexBox);
+          mouseBox(hideBox[random(indexBox)],3);
+        end;
+    end;
+
+{
+ ========================================
+ NOTE: The getMousePoint function returns
+ the current mouse position as a tPoint.
+
+ EXAMPLES:
+ ----------------------------------------
+ closestPotion:=getMousePoint().closest(glGetTextures([91800,92055]));
+ writeLN('The closest overload to the mouse is '+toStr(closestPotion)+'.'));
+ ========================================
+}
+
+  function getMousePoint:tPoint;
+    begin
+      getMousePos(result.x,result.y);
+    end;
+
+{
+ ========================================
+ NOTE: The adjustPosition function
+ offsets a tPoint or glModel position by
+ a specified amount.
+
+ EXAMPLES:
+ ----------------------------------------
+ torcherPosition:=glGetTextures(2782989724)[0].adjustPosition(0,-15);
+ writeLN('Torchers fly above the ground, so the adjusted position is '+toStr(torcherPosition)+'.'));
+ ========================================
+}
+
+  function tBox.adjustPosition(offsetX1,offsetY1,offsetX2,offsetY2:integer=0):tBox;
+    begin
+      result.x1:=self.x1+offsetX1;
+      result.y1:=self.y1+offsetY1;
+      result.x2:=self.x2+offsetX2;
+      result.y2:=self.y2+offsetY2;
+    end;
+
+  function tPoint.adjustPosition(offsetX,offsetY:integer=0):tPoint;
+    begin
+      result.x:=self.x+offsetX;
+      result.y:=self.y+offsetY;
+    end;
+
+  function glModel.adjustPosition(offsetX,offsetY:integer=0):glModel;
+    begin
+      result.x:=self.x+offsetX;
+      result.y:=self.y+offsetY;
+    end;
+
+  function glTexture.adjustPosition(offsetX,offsetY:integer=0):glTexture;
+    begin
+      result.x:=self.x+offsetX;
+      result.y:=self.y+offsetY;
+    end;
+
+{
+ ========================================
+ NOTE: The maxIndex methods return the
+ highest index of the specified
+ tPointArray, glModelArray, or
+ glTextureArray. It is a replacement
+ for using high(array).
+
+ EXAMPLES:
+ ----------------------------------------
+ usefulModels:=glGetModels([1535441881,4213010469,15435661]);
+ for index:=0 to usefulModels.maxIndex() then
+   writeLN(useFulModels[index]);
+ ========================================
+}
+
+  function tBoxArray.maxIndex():cardinal;
+    begin
+      result:=high(self);
+    end;
+
+  function tPointArray.maxIndex():cardinal;
+    begin
+      result:=high(self);
+    end;
+
+  function tStringArray.maxIndex():cardinal;
+    begin
+      result:=high(self);
+    end;
+
+  function glCharArray.maxIndex():cardinal;
+    begin
+      result:=high(self);
+    end;
+
+  function glModelArray.maxIndex():cardinal;
+    begin
+      result:=high(self);
+    end;
+
+  function glTextArray.maxIndex():cardinal;
+    begin
+      result:=high(self);
+    end;
+
+  function glTextureArray.maxIndex():cardinal;
+    begin
+      result:=high(self);
+    end;
+
+  function tIntegerArray.maxIndex():cardinal;
+    begin
+      result:=high(self);
+    end;
+
+{
+ ========================================
+ NOTE: The minIndex methods return the
+ lowest index of the specified
+ tPointArray, glModelArray, or
+ glTextureArray. It is a replacement
+ for using low(array).
+
+ EXAMPLES:
+ ----------------------------------------
+ usefulModels:=glGetModels([1535441881,4213010469,15435661]);
+ for index:=0 to usefulModels.maxIndex() then
+   writeLN(useFulModels[index]);
+ ========================================
+}
+
+  function tPointArray.minIndex():cardinal;
+    begin
+      result:=low(self);
+    end;
+
+  function glCharArray.minIndex():cardinal;
+    begin
+      result:=low(self);
+    end;
+
+  function glModelArray.minIndex():cardinal;
+    begin
+      result:=low(self);
+    end;
+
+  function glTextureArray.minIndex():cardinal;
+    begin
+      result:=low(self);
+    end;
+
+  function tIntegerArray.minIndex():cardinal;
+    begin
+      result:=low(self);
+    end;
+
+{
+ ========================================
+ NOTE: The toPoint methods return the
+ X and Y of specified glModel, and
+ glTextures.
+
+ EXAMPLES:
+ ----------------------------------------
+ usefulModels:=glGetModels([1535441881,4213010469,15435661]);
+ warpedTortoisePoint:=usefulModels.extractID(1535441881)[0].toPoint();
+ ----------------------------------------
+ usefulTextures:=glGetTextures([48450,42840,92055,91800]);
+ overloadPoint:=usefulTextures.extractID([92055,91800])[0].toPoint();
+ ========================================
+}
+
+  function glModel.toPoint():tPoint;
+    begin
+      result:=point(self.x,self.y);
+    end;
+
+  function glTexture.toPoint():tPoint;
+    begin
+      result:=point(self.x,self.y);
+    end;
+
+{
+ ========================================
+ NOTE: The indexs methods return the
+ length of the specified tPointArray,
+ glModelArray, or glTextureArray. It is a
+ replacement for using length(array).
+
+ EXAMPLES:
+ ----------------------------------------
+ usefulModels:=glGetModels([1535441881,4213010469,15435661]);
+ if usefulModels.indexs=0 then
+   writeLN('No useful models found...');
+ ========================================
+}
+
+  function tBoxArray.indexes():integer;
+    begin
+      result:=length(self);
+    end;
+
+  function tPointArray.indexes():integer;
+    begin
+      result:=length(self);
+    end;
+
+  function tStringArray.indexes():integer;
+    begin
+      result:=length(self);
+    end;
+
+  function glModelArray.indexes():integer;
+    begin
+      result:=length(self);
+    end;
+
+  function glTextArray.indexes():integer;
+    begin
+      result:=length(self);
+    end;
+
+  function glTextureArray.indexes():integer;
+    begin
+      result:=length(self);
+    end;
+
+  function glCharArray.indexes():integer;
+    begin
+      result:=length(self);
+    end;
+
+  function tIntegerArray.indexes():integer;
+    begin
+      result:=length(self);
+    end;
+
+{
+ ========================================
+ NOTE: The isEmpty methods return whether
+ or not an array has any values.
+
+ EXAMPLES:
+ ----------------------------------------
+ usefulModels:=glGetModels([1535441881,4213010469,15435661]);
+ if usefulModels.isEmpty then
+   writeLN('No useful models found...');
+ ========================================
+}
+
+  function tBoxArray.isEmpty():boolean;
+    begin
+      result:=self.indexes()=0;
+    end;
+
+  function tPointArray.isEmpty():boolean;
+    begin
+      result:=self.indexes()=0;
+    end;
+
+  function tStringArray.isEmpty():boolean;
+    begin
+      result:=self.indexes()=0;
+    end;
+
+  function glModelArray.isEmpty():boolean;
+    begin
+      result:=self.indexes()=0;
+    end;
+
+  function glTextArray.isEmpty():boolean;
+    begin
+      result:=self.indexes()=0;
+    end;
+
+  function glTextureArray.isEmpty():boolean;
+    begin
+      result:=self.indexes()=0;
+    end;
+
+  function glCharArray.isEmpty():boolean;
+    begin
+      result:=self.indexes()=0;
+    end;
+
+  function tIntegerArray.isEmpty():boolean;
+    begin
+      result:=self.indexes()=0;
+    end;
+
+{
+ ========================================
+ NOTE: The toTPA methods will return a
+ tPointArray based on the X and Y
+ of glModelArray or glTextureArray.
+
+ EXAMPLES:
+ ----------------------------------------
+ positionMouse:=getMousePoint;
+ distanceFromCenter:=positionMouse.distanceFrom(point(400,300));
+ ----------------------------------------
+ positionMouse:=getMousePoint;
+ overloadTexture:=glGetTextures([92055,91800]);
+ distanceFromOverload:=positionMouse.closest(overloadTexture).distanceFrom(positionMouse);
+ ========================================
+}
+
+  function tPoint.distanceFrom(point:tPoint):extended;
+    begin
+      result:=sqrt(pow(self.x-point.x,2)+pow(self.y-point.y,2));
+    end;
+
+  function tPoint.distanceFrom(model:glModel):extended;overload;
+    begin
+      result:=sqrt(pow(self.x-model.x,2)+pow(self.y-model.y,2));
+    end;
+
+  function tPoint.distanceFrom(texture:glTexture):extended;overload;
+    begin
+      result:=sqrt(pow(self.x-texture.x,2)+pow(self.y-texture.y,2));
+    end;
+
+  function glModel.distanceFrom(point:tPoint):extended;
+    begin
+      result:=sqrt(pow(self.x-point.x,2)+pow(self.y-point.y,2));
+    end;
+
+  function glModel.distanceFrom(model:glModel):extended;overload;
+    begin
+      result:=sqrt(pow(self.x-model.x,2)+pow(self.y-model.y,2));
+    end;
+
+  function glModel.distanceFrom(texture:glTexture):extended;overload;
+    begin
+      result:=sqrt(pow(self.x-texture.x,2)+pow(self.y-texture.y,2));
+    end;
+
+  function glTexture.distanceFrom(point:tPoint):extended;
+    begin
+      result:=sqrt(pow(self.x-point.x,2)+pow(self.y-point.y,2));
+    end;
+
+  function glTexture.distanceFrom(model:glModel):extended;overload;
+    begin
+      result:=sqrt(pow(self.x-model.x,2)+pow(self.y-model.y,2));
+    end;
+
+  function glTexture.distanceFrom(texture:glTexture):extended;overload;
+    begin
+      result:=sqrt(pow(self.x-texture.x,2)+pow(self.y-texture.y,2));
+    end;
+
+{
+ ========================================
+ NOTE: The toTPA methods will return a
+ tPointArray based on the X and Y
+ of glModelArray or glTextureArray.
+
+ EXAMPLES:
+ ----------------------------------------
+ warpedTortoiseModels:=glGetModels(1535441881);
+ positionsWarpedTortoise:=warpedTortoiseModels.toTPA;
+ ----------------------------------------
+ overloadTextures:=glGetTextures([92055,91800]);
+ positionOverload:=overloadTexture.toTPA;
+
+ THANK YOU:
+ • riwu
+ ========================================
+}
+
+  function glModelArray.toTPA():tPointArray;
+    var
+      selfIndex:cardinal=0;
+    begin
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+          result[selfIndex].x:=self[selfIndex].x;
+          result[selfIndex].y:=self[selfIndex].y;
+        end;
+    end;
+
+  function glTextureArray.toTPA():tPointArray;
+    var
+      selfIndex:cardinal=0;
+    begin
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+          result[selfIndex].x:=self[selfIndex].x;
+          result[selfIndex].y:=self[selfIndex].y;
+        end;
+    end;
+
+{
+ ========================================
+ NOTE: The furthest methods will return
+ the furthest tPoint, glModel, or
+ glTexture from a specified point.
+
+ EXAMPLES:
+ ----------------------------------------
+ furthestDot:=obsMiniMapMiddle().furthest(textureArray.extractID(3570));
+ writeLN('The furthest dot from the player is at: ',toStr(furthestDot));
+ ----------------------------------------
+ furthestDot:=obsMiniMapMiddle().furthest(textureArray.extractID(3570),2);
+ writeLN('The third furthest dot from the player is at: ',toStr(furthestDot));
+ ========================================
+}
+
+  function tPoint.furthest(arrayOfPoints:tPointArray):tPoint;
+    begin
+      if arrayOfPoints.isEmpty() then
+        exit;
+      result:=arrayOfPoints.closestTo(self,arrayOfPoints.maxIndex());
+    end;
+
+  function tPoint.furthest(arrayOfPoints:tPointArray;pointNumber:integer):tPoint;overload;
+    var
+      maxIndex:cardinal;
+    begin
+      if arrayOfPoints.isEmpty() or (pointNumber>(maxIndex:=arrayOfPoints.maxIndex())) then
+        exit;
+      result:=arrayOfPoints.closestTo(self,arrayOfPoints.maxIndex()-pointNumber);
+    end;
+
+  function tPoint.furthest(arrayOfModels:glModelArray):tPoint;overload;
+    begin
+      if arrayOfModels.isEmpty() then
+        exit;
+      result:=arrayOfModels.closestTo(self,arrayOfModels.maxIndex());
+    end;
+
+  function tPoint.furthest(arrayOfModels:glModelArray;modelNumber:integer):tPoint;overload;
+    var
+      maxIndex:cardinal;
+    begin
+      if arrayOfModels.isEmpty() or (modelNumber>(maxIndex:=arrayOfModels.maxIndex())) then
+        exit;
+      result:=arrayOfModels.closestTo(self,arrayOfModels.maxIndex()-modelNumber);
+    end;
+
+  function tPoint.furthest(arrayOfTextures:glTextureArray):tPoint;overload;
+    begin
+      if arrayOfTextures.isEmpty() then
+        exit;
+      result:=arrayOfTextures.closestTo(self,arrayOfTextures.maxIndex());
+    end;
+
+  function tPoint.furthest(arrayOfTextures:glTextureArray;textureNumber:integer):tPoint;overload;
+    var
+      maxIndex:cardinal;
+    begin
+      if arrayOfTextures.isEmpty() or (textureNumber>(maxIndex:=arrayOfTextures.maxIndex())) then
+        exit;
+      result:=arrayOfTextures.closestTo(self,arrayOfTextures.maxIndex()-textureNumber);
+    end;
+
+  function glModel.furthest(arrayOfPoints:tPointArray):tPoint;
+    begin
+      if arrayOfPoints.isEmpty() then
+        exit;
+      result:=arrayOfPoints.closestTo(self,arrayOfPoints.maxIndex());
+    end;
+
+  function glModel.furthest(arrayOfPoints:tPointArray;pointNumber:integer):tPoint;overload;
+    var
+      maxIndex:cardinal;
+    begin
+      if arrayOfPoints.isEmpty() or (pointNumber>(maxIndex:=arrayOfPoints.maxIndex())) then
+        exit;
+      result:=arrayOfPoints.closestTo(self,arrayOfPoints.maxIndex()-pointNumber);
+    end;
+
+  function glModel.furthest(arrayOfModels:glModelArray):tPoint;overload;
+    begin
+      if arrayOfModels.isEmpty() then
+        exit;
+      result:=arrayOfModels.closestTo(self,arrayOfModels.maxIndex());
+    end;
+
+  function glModel.furthest(arrayOfModels:glModelArray;modelNumber:integer):tPoint;overload;
+    var
+      maxIndex:cardinal;
+    begin
+      if arrayOfModels.isEmpty() or (modelNumber>(maxIndex:=arrayOfModels.maxIndex())) then
+        exit;
+      result:=arrayOfModels.closestTo(self,arrayOfModels.maxIndex()-modelNumber);
+    end;
+
+  function glModel.furthest(arrayOfTextures:glTextureArray):tPoint;overload;
+    begin
+      if arrayOfTextures.isEmpty() then
+        exit;
+      result:=arrayOfTextures.closestTo(self,arrayOfTextures.maxIndex());
+    end;
+
+  function glModel.furthest(arrayOfTextures:glTextureArray;textureNumber:integer):tPoint;overload;
+    var
+      maxIndex:cardinal;
+    begin
+      if arrayOfTextures.isEmpty() or (textureNumber>(maxIndex:=arrayOfTextures.maxIndex())) then
+        exit;
+      result:=arrayOfTextures.closestTo(self,arrayOfTextures.maxIndex()-textureNumber);
+    end;
+
+  function glTexture.furthest(arrayOfPoints:tPointArray):tPoint;
+    begin
+      if arrayOfPoints.isEmpty() then
+        exit;
+      result:=arrayOfPoints.closestTo(self,arrayOfPoints.maxIndex());
+    end;
+
+  function glTexture.furthest(arrayOfPoints:tPointArray;pointNumber:integer):tPoint;overload;
+    var
+      maxIndex:cardinal;
+    begin
+      if arrayOfPoints.isEmpty() or (pointNumber>(maxIndex:=arrayOfPoints.maxIndex())) then
+        exit;
+      result:=arrayOfPoints.closestTo(self,arrayOfPoints.maxIndex()-pointNumber);
+    end;
+
+  function glTexture.furthest(arrayOfModels:glModelArray):tPoint;overload;
+    begin
+      if arrayOfModels.isEmpty() then
+        exit;
+      result:=arrayOfModels.closestTo(self,arrayOfModels.maxIndex());
+    end;
+
+  function glTexture.furthest(arrayOfModels:glModelArray;modelNumber:integer):tPoint;overload;
+    var
+      maxIndex:cardinal;
+    begin
+      if arrayOfModels.isEmpty() or (modelNumber>(maxIndex:=arrayOfModels.maxIndex())) then
+        exit;
+      result:=arrayOfModels.closestTo(self,arrayOfModels.maxIndex()-modelNumber);
+    end;
+
+  function glTexture.furthest(arrayOfTextures:glTextureArray):tPoint;overload;
+    begin
+      if arrayOfTextures.isEmpty() then
+        exit;
+      result:=arrayOfTextures.closestTo(self,arrayOfTextures.maxIndex());
+    end;
+
+  function glTexture.furthest(arrayOfTextures:glTextureArray;textureNumber:integer):tPoint;overload;
+    var
+      maxIndex:cardinal;
+    begin
+      if arrayOfTextures.isEmpty() or (textureNumber>(maxIndex:=arrayOfTextures.maxIndex())) then
+        exit;
+      result:=arrayOfTextures.closestTo(self,arrayOfTextures.maxIndex()-textureNumber);
+    end;
+
+{
+ ========================================
+ NOTE: The closest methods will return
+ the closest tPoint, glModel, or
+ glTexture to a specified point.
+
+ EXAMPLES:
+ ----------------------------------------
+ warpedTortoiseModels:=glGetModels(1535441881);
+ posititonPlayer:=point(400,300);
+ writeLN('The closest Warped tortoise is at:');
+ writeLN(positionPlayer.closest(warpedTortoiseModels));
+ ----------------------------------------
+ overloadTextures:=glGetTextures([92055,91800]);
+ positionMouse:=getMousePoint;
+ writeLN('The fourth closest Overload is at:');
+ writeLN(positionMouse.closest(overloadTextures,3));
+ ========================================
+}
+
+  function tPoint.closest(arrayOfPoints:tPointArray):tPoint;
+    begin
+      if arrayOfPoints.isEmpty() then
+        exit;
+      result:=arrayOfPoints.closestTo(self);
+    end;
+
+  function tPoint.closest(arrayOfPoints:tPointArray;pointNumber:integer):tPoint;overload;
+    begin
+      if arrayOfPoints.isEmpty() or (pointNumber>arrayOfPoints.maxIndex()) then
+        exit;
+      result:=arrayOfPoints.closestTo(self,pointNumber);
+    end;
+
+  function tPoint.closest(arrayOfModels:glModelArray):tPoint;overload;
+    begin
+      if arrayOfModels.isEmpty() then
+        exit;
+      result:=arrayOfModels.closestTo(self);
+    end;
+
+  function tPoint.closest(arrayOfModels:glModelArray;modelNumber:integer):tPoint;overload;
+    begin
+      if arrayOfModels.isEmpty() or (modelNumber>arrayOfModels.maxIndex()) then
+        exit;
+      result:=arrayOfModels.closestTo(self,modelNumber);
+    end;
+
+  function tPoint.closest(arrayOfTextures:glTextureArray):tPoint;overload;
+    begin
+      result:=arrayOfTextures.closestTo(self);
+    end;
+
+  function tPoint.closest(arrayOfTextures:glTextureArray;textureNumber:integer):tPoint;overload;
+    begin
+      if arrayOfTextures.isEmpty() or (textureNumber>arrayOfTextures.maxIndex()) then
+        exit;
+      result:=arrayOfTextures.closestTo(self,textureNumber);
+    end;
+
+  function glModel.closest(arrayOfPoints:tPointArray):tPoint;
+    var
+      selfToPoint:tPoint;
+    begin
+      selfToPoint:=self.toPoint();
+      if arrayOfPoints.isEmpty() then
+        exit;
+      result:=arrayOfPoints.closestTo(selfToPoint);
+    end;
+
+  function glModel.closest(arrayOfPoints:tPointArray;pointNumber:integer):tPoint;overload;
+    var
+      selfToPoint:tPoint;
+    begin
+      selfToPoint:=self.toPoint();
+      if arrayOfPoints.isEmpty() or (pointNumber>arrayOfPoints.maxIndex()) then
+        exit;
+      result:=arrayOfPoints.closestTo(selfToPoint,pointNumber);
+    end;
+
+  function glModel.closest(arrayOfModels:glModelArray):tPoint;overload;
+    var
+      selfToPoint:tPoint;
+    begin
+      selfToPoint:=self.toPoint();
+      if arrayOfModels.isEmpty() then
+        exit;
+      result:=arrayOfModels.closestTo(selfToPoint);
+    end;
+
+  function glModel.closest(arrayOfModels:glModelArray;modelNumber:integer):tPoint;overload;
+    var
+      selfToPoint:tPoint;
+    begin
+      selfToPoint:=self.toPoint();
+      if arrayOfModels.isEmpty() or (modelNumber>arrayOfModels.maxIndex()) then
+        exit;
+      result:=arrayOfModels.closestTo(selfToPoint,modelNumber);
+    end;
+
+  function glModel.closest(arrayOfTextures:glTextureArray):tPoint;overload;
+    var
+      selfToPoint:tPoint;
+    begin
+      selfToPoint:=self.toPoint();
+      result:=arrayOfTextures.closestTo(selfToPoint);
+    end;
+
+  function glModel.closest(arrayOfTextures:glTextureArray;textureNumber:integer):tPoint;overload;
+    var
+      selfToPoint:tPoint;
+    begin
+      selfToPoint:=self.toPoint();
+      if arrayOfTextures.isEmpty() or (textureNumber>arrayOfTextures.maxIndex()) then
+        exit;
+      result:=arrayOfTextures.closestTo(selfToPoint,textureNumber);
+    end;
+
+  function glTexture.closest(arrayOfPoints:tPointArray):tPoint;
+    var
+      selfToPoint:tPoint;
+    begin
+      selfToPoint:=self.toPoint();
+      if arrayOfPoints.isEmpty() then
+        exit;
+      result:=arrayOfPoints.closestTo(selfToPoint);
+    end;
+
+  function glTexture.closest(arrayOfPoints:tPointArray;pointNumber:integer):tPoint;overload;
+    var
+      selfToPoint:tPoint;
+    begin
+      selfToPoint:=self.toPoint();
+      if arrayOfPoints.isEmpty() or (pointNumber>arrayOfPoints.maxIndex()) then
+        exit;
+      result:=arrayOfPoints.closestTo(selfToPoint,pointNumber);
+    end;
+
+  function glTexture.closest(arrayOfModels:glModelArray):tPoint;overload;
+    var
+      selfToPoint:tPoint;
+    begin
+      selfToPoint:=self.toPoint();
+      if arrayOfModels.isEmpty() then
+        exit;
+      result:=arrayOfModels.closestTo(selfToPoint);
+    end;
+
+  function glTexture.closest(arrayOfModels:glModelArray;modelNumber:integer):tPoint;overload;
+    var
+      selfToPoint:tPoint;
+    begin
+      selfToPoint:=self.toPoint();
+      if arrayOfModels.isEmpty() or (modelNumber>arrayOfModels.maxIndex()) then
+        exit;
+      result:=arrayOfModels.closestTo(selfToPoint,modelNumber);
+    end;
+
+  function glTexture.closest(arrayOfTextures:glTextureArray):tPoint;overload;
+    var
+      selfToPoint:tPoint;
+    begin
+      selfToPoint:=self.toPoint();
+      result:=arrayOfTextures.closestTo(selfToPoint);
+    end;
+
+  function glTexture.closest(arrayOfTextures:glTextureArray;textureNumber:integer):tPoint;overload;
+    var
+      selfToPoint:tPoint;
+    begin
+      selfToPoint:=self.toPoint();
+      if arrayOfTextures.isEmpty() or (textureNumber>arrayOfTextures.maxIndex()) then
+        exit;
+      result:=arrayOfTextures.closestTo(selfToPoint,textureNumber);
+    end;
+
+{
+ ========================================
+ NOTE: The closestTo methods act similar
+ to the closest methods, only backward.
+ They also returns a tPointArray sorted
+ based on distance from the specified
+ point.
+
+ EXAMPLES:
+ ----------------------------------------
+ warpedTortoiseModels:=glGetModels(1535441881);
+ posititonPlayer:=point(400,300);
+ writeLN('The closest Warped tortoise is at:');
+ writeLN(warpedTortoiseModels.closestTo(positionPlayer)[0]);
+ ----------------------------------------
+ overloadTextures:=glGetTextures([92055,91800]);
+ positionMouse:=getMousePoint();
+ writeLN('The fourth closest Overload is at:'+toStr(overloadTextures.closestTo(positionMouse)[3]));
+ ========================================
+}
+
+  function tPointArray.closestTo(const toPoint:tPoint):tPoint;
+    begin
+      if self.isEmpty() then
+        exit;
+      sortTPAFrom(self,toPoint);
+      result:=self[0];
+    end;
+
+  function tPointArray.closestTo(const toPoint:tPoint;pointNumber:integer):tPoint;overload;
+    begin
+      if self.isEmpty() then
+        exit;
+      sortTPAFrom(self,toPoint);
+      result:=self[pointNumber];
+    end;
+
+  function tPointArray.closestTo(const toModel:glModel):tPoint;overload;
+    begin
+      if self.isEmpty() then
+        exit;
+      sortTPAFrom(self,toModel.toPoint());
+      result:=self[0];
+    end;
+
+  function tPointArray.closestTo(const toModel:glModel;pointNumber:integer):tPoint;overload;
+    begin
+      if self.isEmpty() then
+        exit;
+      sortTPAFrom(self,toModel.toPoint());
+      result:=self[pointNumber];
+    end;
+
+  function tPointArray.closestTo(const toTexture:glTexture):tPoint;overload;
+    begin
+      if self.isEmpty() then
+        exit;
+      sortTPAFrom(self,toTexture.toPoint());
+      result:=self[0];
+    end;
+
+  function tPointArray.closestTo(const toTexture:glTexture;pointNumber:integer):tPoint;overload;
+    begin
+      if self.isEmpty() then
+        exit;
+      sortTPAFrom(self,toTexture.toPoint());
+      result:=self[pointNumber];
+    end;
+
+  function glModelArray.closestTo(const toPoint:tPoint):tPoint;
+    var
+      modelTPA:tPointArray;
+    begin
+      if self.isEmpty() then
+        exit;
+      modelTPA:=self.toTPA;
+      sortTPAFrom(modelTPA,toPoint);
+      result:=modelTPA[0];
+    end;
+
+  function glModelArray.closestTo(const toPoint:tPoint;modelNumber:integer):tPoint;overload;
+    var
+      modelTPA:tPointArray;
+    begin
+      if self.isEmpty() then
+        exit;
+      modelTPA:=self.toTPA;
+      sortTPAFrom(modelTPA,toPoint);
+      result:=modelTPA[modelNumber];
+    end;
+
+  function glModelArray.closestTo(const toModel:glModel):tPoint;overload;
+    var
+      modelTPA:tPointArray;
+    begin
+      if self.isEmpty() then
+        exit;
+      modelTPA:=self.toTPA;
+      sortTPAFrom(modelTPA,toModel.toPoint());
+      result:=modelTPA[0];
+    end;
+
+  function glModelArray.closestTo(const toModel:glModel;modelNumber:integer):tPoint;overload;
+    var
+      modelTPA:tPointArray;
+    begin
+      if self.isEmpty() then
+        exit;
+      modelTPA:=self.toTPA;
+      sortTPAFrom(modelTPA,toModel.toPoint());
+      result:=modelTPA[modelNumber];
+    end;
+
+  function glModelArray.closestTo(const toTexture:glTexture):tPoint;overload;
+    var
+      modelTPA:tPointArray;
+    begin
+      if self.isEmpty() then
+        exit;
+      modelTPA:=self.toTPA;
+      sortTPAFrom(modelTPA,toTexture.toPoint());
+      result:=modelTPA[0];
+    end;
+
+  function glModelArray.closestTo(const toTexture:glTexture;modelNumber:integer):tPoint;overload;
+    var
+      modelTPA:tPointArray;
+    begin
+      if self.isEmpty() then
+        exit;
+      modelTPA:=self.toTPA;
+      sortTPAFrom(modelTPA,toTexture.toPoint());
+      result:=modelTPA[modelNumber];
+    end;
+
+  function glTextureArray.closestTo(const toPoint:tPoint):tPoint;
+    var
+      textureTPA:tPointArray;
+    begin
+      if self.isEmpty() then
+        exit;
+      textureTPA:=self.toTPA;
+      sortTPAFrom(textureTPA,toPoint);
+      result:=textureTPA[0];
+    end;
+
+  function glTextureArray.closestTo(const toPoint:tPoint;textureNumber:integer):tPoint;overload;
+    var
+      textureTPA:tPointArray;
+    begin
+      if self.isEmpty() then
+        exit;
+      textureTPA:=self.toTPA;
+      sortTPAFrom(textureTPA,toPoint);
+      result:=textureTPA[textureNumber];
+    end;
+
+  function glTextureArray.closestTo(const toModel:glModel):tPoint;overload;
+    var
+      textureTPA:tPointArray;
+    begin
+      if self.isEmpty() then
+        exit;
+      textureTPA:=self.toTPA;
+      sortTPAFrom(textureTPA,toModel.toPoint());
+      result:=textureTPA[0];
+    end;
+
+  function glTextureArray.closestTo(const toModel:glModel;textureNumber:integer):tPoint;overload;
+    var
+      textureTPA:tPointArray;
+    begin
+      if self.isEmpty() then
+        exit;
+      textureTPA:=self.toTPA;
+      sortTPAFrom(textureTPA,toModel.toPoint());
+      result:=textureTPA[textureNumber];
+    end;
+
+  function glTextureArray.closestTo(const toTexture:glTexture):tPoint;overload;
+    var
+      textureTPA:tPointArray;
+    begin
+      if self.isEmpty() then
+        exit;
+      textureTPA:=self.toTPA;
+      sortTPAFrom(textureTPA,toTexture.toPoint());
+      result:=textureTPA[0];
+    end;
+
+  function glTextureArray.closestTo(const toTexture:glTexture;textureNumber:integer):tPoint;overload;
+    var
+      textureTPA:tPointArray;
+    begin
+      if self.isEmpty() then
+        exit;
+      textureTPA:=self.toTPA;
+      sortTPAFrom(textureTPA,toTexture.toPoint());
+      result:=textureTPA[textureNumber];
+    end;
+
+{
+ ========================================
+ NOTE: The randomizePoint and
+ randomizePointEllipse methods will
+ return a randomized tPoint based on the
+ specified tPoint, glModel, or
+ glTexture's center point and the
+ specified random area.
+
+ EXAMPLES:
+ ----------------------------------------
+ warpedTortoiseModels:=glGetModels(1535441881);
+ posititonPlayer:=point(400,300);
+ writeLN('The closest Warped tortoise is around:');
+ writeLN(positionPlayer.closest(warpedTortoiseModels).randomizePoint(30));
+ ----------------------------------------
+ overloadTextures:=glGetTextures([92055,91800]);
+ positionMouse:=getMousePoint;
+ writeLN('The fourth closest Overload is around:');
+ writeLN(positionMouse.closest(overloadTextures,3).randomizePoint(30));
+ ========================================
+}
+
+  function tPoint.randomizePoint(randomizeBy:integer):tPoint;
+    var
+      halfRandomizeBy:integer;
+    begin
+      result:=point(self.x+random((halfRandomizeBy:=ceil(randomizeBy/2))*-1,halfRandomizeBy),self.y+random(halfRandomizeBy*-1,halfRandomizeBy));
+    end;
+
+  function tPoint.randomizePoint(randomizeByX:integer;randomizeByY:integer):tPoint;overload;
+    var
+      halfRandomizeByX,
+        halfRandomizeByY:integer;
+    begin
+      result:=point(self.x+random((halfRandomizeByX:=ceil(randomizeByX/2))*-1,halfRandomizeByX),self.y+random((halfRandomizeByY:=ceil(randomizeByY/2))*-1,halfRandomizeByY));
+    end;
+
+  function glModel.randomizePoint(randomizeBy:integer):tPoint;overload;
+    var
+      halfRandomizeBy:integer;
+    begin
+      result:=point(self.x+random((halfRandomizeBy:=ceil(randomizeBy/2))*-1,halfRandomizeBy),self.y+random(halfRandomizeBy*-1,halfRandomizeBy));
+    end;
+
+  function glModel.randomizePoint(randomizeByX:integer;randomizeByY:integer):tPoint;overload;
+    var
+      halfRandomizeByX,
+        halfRandomizeByY:integer;
+    begin
+      result:=point(self.x+random((halfRandomizeByX:=ceil(randomizeByX/2))*-1,halfRandomizeByX),self.y+random((halfRandomizeByY:=ceil(randomizeByY/2))*-1,halfRandomizeByY));
+    end;
+
+  function glTexture.randomizePoint(randomizeBy:integer):tPoint;
+    var
+      halfRandomizeBy:integer;
+    begin
+      result:=point(self.x+random((halfRandomizeBy:=ceil(randomizeBy/2))*-1,halfRandomizeBy),self.y+random(halfRandomizeBy*-1,halfRandomizeBy));
+    end;
+
+  function glTexture.randomizePoint(randomizeByX:integer;randomizeByY:integer):tPoint;overload;
+    var
+      halfRandomizeByX,
+        halfRandomizeByY:integer;
+    begin
+      result:=point(self.x+random((halfRandomizeByX:=ceil(randomizeByX/2))*-1,halfRandomizeByX),self.y+random((halfRandomizeByY:=ceil(randomizeByY/2))*-1,halfRandomizeByY));
+    end;
+
+  function tPoint.randomizePointEllipse(diameter:integer):tPoint;
+    var
+      angle,
+        radius,
+        randomRadius:extended;
+    begin
+      result:=point(self.x+round((radius:=diameter/2)*(randomRadius:=random())*cos(angle:=random()*(pi*2))),self.y+round((radius*randomRadius)*sin(angle)));
+    end;
+
+  function tPoint.randomizePointEllipse(diameterX:integer;diameterY:integer):tPoint;overload;
+    var
+      angle,
+        radiusX,
+        radiusY,
+        randomRadiusX,
+        randomradiusY:extended;
+    begin
+      result:=point(self.x+round((radiusX:=diameterX/2)*(randomRadiusX:=random())*cos(angle:=random()*(pi*2))),self.y+round(((radiusY:=diameterY/2)*(randomRadiusY:=random()))*sin(angle)));
+    end;
+
+  function glModel.randomizePointEllipse(diameter:integer):tPoint;
+    var
+      angle,
+        radius,
+        randomRadius:extended;
+    begin
+      result:=point(self.x+round((radius:=diameter/2)*(randomRadius:=random())*cos(angle:=random()*(pi*2))),self.y+round((radius*randomRadius)*sin(angle)));
+    end;
+
+  function glModel.randomizePointEllipse(diameterX:integer;diameterY:integer):tPoint;overload;
+    var
+      angle,
+        radiusX,
+        radiusY,
+        randomRadiusX,
+        randomradiusY:extended;
+    begin
+      result:=point(self.x+round((radiusX:=diameterX/2)*(randomRadiusX:=random())*cos(angle:=random()*(pi*2))),self.y+round(((radiusY:=diameterY/2)*(randomRadiusY:=random()))*sin(angle)));
+    end;
+
+  function glTexture.randomizePointEllipse(diameter:integer):tPoint;
+    var
+      angle,
+        radius,
+        randomRadius:extended;
+    begin
+      result:=point(self.x+round((radius:=diameter/2)*(randomRadius:=random())*cos(angle:=random()*(pi*2))),self.y+round((radius*randomRadius)*sin(angle)));
+    end;
+
+  function glTexture.randomizePointEllipse(diameterX:integer;diameterY:integer):tPoint;overload;
+    var
+      angle,
+        radiusX,
+        radiusY,
+        randomRadiusX,
+        randomradiusY:extended;
+    begin
+      result:=point(self.x+round((radiusX:=diameterX/2)*(randomRadiusX:=random())*cos(angle:=random()*(pi*2))),self.y+round(((radiusY:=diameterY/2)*(randomRadiusY:=random()))*sin(angle)));
+    end;
+
+{
+ ========================================
+ NOTE: The extractColourID and extractID
+ methods will return an array of glModels
+ or glTextures which contain the given
+ colourID, colourIDs, ID, or IDs.
+
+ EXAMPLES:
+ ----------------------------------------
+ usefulModels:=glGetModels([1535441881,4213010469,15435661]);
+ warpedTortoiseModels:=usefulModels.extractID(1535441881);
+ ----------------------------------------
+ usefulTextures:=glGetTextures([48450,42840,92055,91800]);
+ overloadTextures:=usefulTextures.extractID([92055,91800]);
+ ========================================
+}
+
+  function glTextureArray.extractColourIDs(funcColourID:variant):glTextureArray;
+    begin
+    //3 - integer
+    //256 - ansiString
+      writeLN(varType(funcColourID));
+
+    end;
+
+  function glCharArray.extractColourID(colourID:integer):glCharArray;
+    var
+      foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+          if self[selfIndex].colour=colourID then
+            begin
+              result[foundIndex]:=self[selfIndex];
+              inc(foundIndex);
+            end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function glCharArray.extractColourID(colourID:integer;tolerance:integer):glCharArray;overload;
+    var
+      foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+          if similarColors(self[selfIndex].colour,colourID,tolerance) then
+            begin
+              result[foundIndex]:=self[selfIndex];
+              inc(foundIndex);
+            end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function glCharArray.extractColourID(colours:tIntegerArray):glCharArray;overload;
+    var
+      coloursIndex,
+        foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+         for coloursIndex:=0 to colours.maxIndex() do
+           begin
+             if self[selfIndex].colour=colours[coloursIndex] then
+              begin
+                result[foundIndex]:=self[selfIndex];
+                inc(foundIndex);
+                break;
+              end;
+           end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function glCharArray.extractColourID(colours:tIntegerArray;tolerance:integer):glCharArray;overload;
+    var
+      coloursIndex,
+        foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+         for coloursIndex:=0 to colours.maxIndex() do
+           begin
+             if similarColors(self[selfIndex].colour,colours[coloursIndex],tolerance) then
+              begin
+                result[foundIndex]:=self[selfIndex];
+                inc(foundIndex);
+                break;
+              end;
+           end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function glTextureArray.extractColourID(colourID:integer):glTextureArray;
+    var
+      foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+          if self[selfIndex].colourID=colourID then
+            begin
+              result[foundIndex]:=self[selfIndex];
+              inc(foundIndex);
+            end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function glTextureArray.extractColourID(colourID:integer;tolerance:integer):glTextureArray;overload;
+    var
+      foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+          if similarColors(self[selfIndex].colourID,colourID,tolerance) then
+            begin
+              result[foundIndex]:=self[selfIndex];
+              inc(foundIndex);
+            end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function glTextureArray.extractColourID(colourIDs:tIntegerArray):glTextureArray;overload;
+    var
+      colourIDsIndex,
+        foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+         for colourIDsIndex:=0 to colourIDs.maxIndex() do
+           begin
+             if self[selfIndex].colourID=colourIDs[colourIDsIndex] then
+              begin
+                result[foundIndex]:=self[selfIndex];
+                inc(foundIndex);
+                break;
+              end;
+           end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function glTextureArray.extractColourID(colourIDs:tIntegerArray;tolerance:integer):glTextureArray;overload;
+    var
+      colourIDsIndex,
+        foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+         for colourIDsIndex:=0 to colourIDs.maxIndex() do
+           begin
+             if similarColors(self[selfIndex].colourID,colourIDs[colourIDsIndex],tolerance) then
+              begin
+                result[foundIndex]:=self[selfIndex];
+                inc(foundIndex);
+                break;
+              end;
+           end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function glCharArray.extractID(ID:cardinal):glCharArray;
+    var
+      foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty() then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+          if cardinal(self[selfIndex].textureID)=cardinal(ID) then
+            begin
+              result[foundIndex]:=self[selfIndex];
+              inc(foundIndex);
+            end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function glCharArray.extractID(IDs:tIntegerArray):glCharArray;overload;
+    var
+      foundIndex,
+        IDsIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+         for IDsIndex:=0 to IDs.maxIndex() do
+           begin
+             if cardinal(self[selfIndex].textureID)=cardinal(IDs[IDsIndex]) then
+              begin
+                result[foundIndex]:=self[selfIndex];
+                inc(foundIndex);
+                break;
+              end;
+           end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function glModelArray.extractID(ID:cardinal):glModelArray;
+    var
+      foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty() then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+          if cardinal(self[selfIndex].ID)=cardinal(ID) then
+            begin
+              result[foundIndex]:=self[selfIndex];
+              inc(foundIndex);
+            end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function glModelArray.extractID(IDs:tIntegerArray):glModelArray;overload;
+    var
+      foundIndex,
+        IDsIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+         for IDsIndex:=0 to IDs.maxIndex() do
+           begin
+             if cardinal(self[selfIndex].ID)=cardinal(IDs[IDsIndex]) then
+              begin
+                result[foundIndex]:=self[selfIndex];
+                inc(foundIndex);
+                break;
+              end;
+           end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function glModelArray.extractTID(TID:cardinal):glModelArray;
+    var
+      foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty() then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+          if cardinal(self[selfIndex].TID)=cardinal(TID) then
+            begin
+              result[foundIndex]:=self[selfIndex];
+              inc(foundIndex);
+            end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function glModelArray.extractTID(TIDs:tIntegerArray):glModelArray;overload;
+    var
+      foundIndex,
+        TIDsIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+         for TIDsIndex:=0 to TIDs.maxIndex() do
+           begin
+             if cardinal(self[selfIndex].TID)=cardinal(TIDs[TIDsIndex]) then
+              begin
+                result[foundIndex]:=self[selfIndex];
+                inc(foundIndex);
+                break;
+              end;
+           end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function glTextureArray.extractID(ID:integer):glTextureArray;
+    var
+      foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+          if cardinal(self[selfIndex].ID)=cardinal(ID) then
+            begin
+              result[foundIndex]:=self[selfIndex];
+              inc(foundIndex);
+            end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function glTextureArray.extractID(IDs:tIntegerArray):glTextureArray;overload;
+    var
+      foundIndex,
+        IDsIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+         for IDsIndex:=0 to IDs.maxIndex() do
+           begin
+             if cardinal(self[selfIndex].ID)=cardinal(IDs[IDsIndex]) then
+              begin
+                result[foundIndex]:=self[selfIndex];
+                inc(foundIndex);
+                break;
+              end;
+           end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+
+
+
+
+  function glTextureArray.extractDimensions(funcWidth,funcHeight:integer):glTextureArray;
+    var
+      foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+          if (self[selfIndex].bounds.width()=funcwidth) and (self[selfIndex].bounds.height()=funcHeight) then
+            begin
+              result[foundIndex]:=self[selfIndex];
+              inc(foundIndex);
+            end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function glTextureArray.extractHeight(funcHeight:integer):glTextureArray;
+    var
+      foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+          if self[selfIndex].bounds.height()=funcHeight then
+            begin
+              result[foundIndex]:=self[selfIndex];
+              inc(foundIndex);
+            end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function glTextureArray.extractWidth(funcWidth:integer):glTextureArray;
+    var
+      foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+          if self[selfIndex].bounds.width()=funcWidth then
+            begin
+              result[foundIndex]:=self[selfIndex];
+              inc(foundIndex);
+            end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+
+
+
+
+  function tBoxArray.extractDimensions(funcWidth,funcHeight:integer):tBoxArray;
+    var
+      foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+          if (self[selfIndex].width()=funcwidth) and (self[selfIndex].height()=funcHeight) then
+            begin
+              result[foundIndex]:=self[selfIndex];
+              inc(foundIndex);
+            end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function tBoxArray.extractHeight(funcHeight:integer):tBoxArray;
+    var
+      foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+          if self[selfIndex].height()=funcHeight then
+            begin
+              result[foundIndex]:=self[selfIndex];
+              inc(foundIndex);
+            end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+  function tBoxArray.extractWidth(funcWidth:integer):tBoxArray;
+    var
+      foundIndex,
+        selfIndex:integer=0;
+    begin
+      if self.isEmpty then
+        exit;
+      setLength(result,self.indexes());
+      for selfIndex to self.maxIndex() do
+        begin
+          if self[selfIndex].width()=funcWidth then
+            begin
+              result[foundIndex]:=self[selfIndex];
+              inc(foundIndex);
+            end;
+        end;
+      setLength(result,foundIndex);
+    end;
+
+{
+ ========================================
+ NOTE: The isBehindInterface methods
+ return whether or not a point, model,
+ or texture is located ontop or behind
+ an interface such as the map,
+ abilitybar, etc.
+
+ EXAMPLES:
+ ----------------------------------------
+ if point(400,300).isBehindInterface() then
+  writeLN('The point 400,300 is behind an interface.');
+ ========================================
+}
+
+  function tPoint.isBehindInterface():boolean;
+    var
+      bottomTextureArray,
+        topTextureArray,
+        fullTextureArray:glTextureArray;
+      indexBottom,
+        indexTop:cardinal=0;
+    begin
+      fullTextureArray:=glGetTextures([16320,28550,3060,4080]);
+      bottomTextureArray:=fullTextureArray.extractID([16320,28550]).extractColourID([1120285,1844266],4);
+      topTextureArray:=fullTextureArray.extractID([3060,4080]).extractColourID([1317664,1714224],4);
+      if (bottomTextureArray.indexes()<2) or (topTextureArray.indexes()<2) then
+        exit;
+      for indexTop to topTextureArray.maxIndex()-1 do
+        begin
+          if (topTextureArray[indexTop].y<>topTextureArray[indexTop+1].y) then
+            continue;
+          for indexBottom:=0 to bottomTextureArray.maxIndex()-1 do
+            begin
+              if (bottomTextureArray[indexBottom].y<>bottomTextureArray[indexBottom+1].y) then
+                continue;
+              if (bottomTextureArray[indexBottom].y>topTextureArray[indexTop].y) and (bottomTextureArray[indexBottom].bounds.x1=topTextureArray[indexTop].bounds.x1) and (bottomTextureArray[indexBottom+1].bounds.x2=topTextureArray[indexTop+1].bounds.x2) then
+                begin
+                  if self.isInBox(intToBox(topTextureArray[indexTop].bounds.x1,topTextureArray[indexTop].bounds.y1,bottomTextureArray[indexBottom+1].bounds.x2,bottomTextureArray[indexBottom+1].bounds.y2)) then
+                    begin
+                      result:=true;
+                      break;
+                    end;
+                end;
+              inc(indexBottom);
+            end;
+          if result then
+            break;
+          inc(indexTop);
+        end;
+    end;
+
+  function tPoint.isBehindInterface(funcTextureArray:glTextureArray):boolean;overload;
+    var
+      bottomTextureArray,
+        topTextureArray:glTextureArray;
+      indexBottom,
+        indexTop:cardinal=0;
+    begin
+      bottomTextureArray:=funcTextureArray.extractID([16320,28550]).extractColourID([1120285,1844266],4);
+      topTextureArray:=funcTextureArray.extractID([3060,4080]).extractColourID([1317664,1714224],4);
+      if (bottomTextureArray.indexes()<2) or (topTextureArray.indexes()<2) then
+        exit;
+      for indexTop to topTextureArray.maxIndex()-1 do
+        begin
+          if (topTextureArray[indexTop].y<>topTextureArray[indexTop+1].y) then
+            continue;
+          for indexBottom:=0 to bottomTextureArray.maxIndex()-1 do
+            begin
+              if (bottomTextureArray[indexBottom].y<>bottomTextureArray[indexBottom+1].y) then
+                continue;
+              if (bottomTextureArray[indexBottom].y>topTextureArray[indexTop].y) and (bottomTextureArray[indexBottom].bounds.x1=topTextureArray[indexTop].bounds.x1) and (bottomTextureArray[indexBottom+1].bounds.x2=topTextureArray[indexTop+1].bounds.x2) then
+                begin
+                  if self.isInBox(intToBox(topTextureArray[indexTop].bounds.x1,topTextureArray[indexTop].bounds.y1,bottomTextureArray[indexBottom+1].bounds.x2,bottomTextureArray[indexBottom+1].bounds.y2)) then
+                    begin
+                      result:=true;
+                      break;
+                    end;
+                end;
+              inc(indexBottom);
+            end;
+          if result then
+            break;
+          inc(indexTop);
+        end;
+    end;
+  {
+  function glModel.isBehindInterface():boolean;
+    var
+      backgroundTexture:glTextureArray;
+      clientHeight,
+        clientWidth:integer;
+      index:cardinal=0;
+    begin
+      backgroundTexture:=glGetTextures([12240,12664320,13293,20400,228480,236640,24480,263160,28550,3060,3084480,3786240,4080,57120,65790,714000,85680,16320]);
+      if backgroundTexture.isEmpty() then
+        exit;
+      getClientDimensions(clientWidth,clientHeight);
+      for index to backgroundTexture.maxIndex() do
+        if self.isInBox(backgroundTexture[index].bounds) and (clientWidth-backgroundTexture[index].bounds.width()>10) and (clientHeight-backgroundTexture[index].bounds.height()>10) then
+          begin
+          writeLN(backgroundTexture[index]);
+            result:=true;
+            exit;
+          end;
+    end;
+  }
+
+  function glModel.isBehindInterface():boolean;
+    var
+      bottomTextureArray,
+        topTextureArray,
+        fullTextureArray:glTextureArray;
+      indexBottom,
+        indexTop:cardinal=0;
+    begin
+      fullTextureArray:=glGetTextures([16320,28550,3060,4080]);
+      bottomTextureArray:=fullTextureArray.extractID([16320,28550]).extractColourID([1120285,1844266],4);
+      topTextureArray:=fullTextureArray.extractID([3060,4080]).extractColourID([1317664,1714224],4);
+      if (bottomTextureArray.indexes()<2) or (topTextureArray.indexes()<2) then
+        exit;
+      for indexTop to topTextureArray.maxIndex()-1 do
+        begin
+          if (topTextureArray[indexTop].y<>topTextureArray[indexTop+1].y) then
+            continue;
+          for indexBottom:=0 to bottomTextureArray.maxIndex()-1 do
+            begin
+              if (bottomTextureArray[indexBottom].y<>bottomTextureArray[indexBottom+1].y) then
+                continue;
+              if (bottomTextureArray[indexBottom].y>topTextureArray[indexTop].y) and (bottomTextureArray[indexBottom].bounds.x1=topTextureArray[indexTop].bounds.x1) and (bottomTextureArray[indexBottom+1].bounds.x2=topTextureArray[indexTop+1].bounds.x2) then
+                begin
+                  if self.isInBox(intToBox(topTextureArray[indexTop].bounds.x1,topTextureArray[indexTop].bounds.y1,bottomTextureArray[indexBottom+1].bounds.x2,bottomTextureArray[indexBottom+1].bounds.y2)) then
+                    begin
+                    writeLN(intToBox(topTextureArray[indexTop].bounds.x1,topTextureArray[indexTop].bounds.y1,bottomTextureArray[indexBottom+1].bounds.x2,bottomTextureArray[indexBottom+1].bounds.y2));
+                      result:=true;
+                      break;
+                    end;
+                end;
+              inc(indexBottom);
+            end;
+          if result then
+            break;
+          inc(indexTop);
+        end;
+    end;
+
+  function glModel.isBehindInterface(funcTextureArray:glTextureArray):boolean;overload;
+    var
+      bottomTextureArray,
+        topTextureArray:glTextureArray;
+      indexBottom,
+        indexTop:cardinal=0;
+    begin
+      bottomTextureArray:=funcTextureArray.extractID([16320,28550]).extractColourID([1120285,1844266],4);
+      topTextureArray:=funcTextureArray.extractID([3060,4080]).extractColourID([1317664,1714224],4);
+      if (bottomTextureArray.indexes()<2) or (topTextureArray.indexes()<2) then
+        exit;
+      for indexTop to topTextureArray.maxIndex()-1 do
+        begin
+          if (topTextureArray[indexTop].y<>topTextureArray[indexTop+1].y) then
+            continue;
+          for indexBottom:=0 to bottomTextureArray.maxIndex()-1 do
+            begin
+              if (bottomTextureArray[indexBottom].y<>bottomTextureArray[indexBottom+1].y) then
+                continue;
+              if (bottomTextureArray[indexBottom].y>topTextureArray[indexTop].y) and (bottomTextureArray[indexBottom].bounds.x1=topTextureArray[indexTop].bounds.x1) and (bottomTextureArray[indexBottom+1].bounds.x2=topTextureArray[indexTop+1].bounds.x2) then
+                begin
+                  if self.isInBox(intToBox(topTextureArray[indexTop].bounds.x1,topTextureArray[indexTop].bounds.y1,bottomTextureArray[indexBottom+1].bounds.x2,bottomTextureArray[indexBottom+1].bounds.y2)) then
+                    begin
+                      result:=true;
+                      break;
+                    end;
+                end;
+              inc(indexBottom);
+            end;
+          if result then
+            break;
+          inc(indexTop);
+        end;
+    end;
+
+  function glTexture.isBehindInterface():boolean;
+    var
+      bottomTextureArray,
+        topTextureArray,
+        fullTextureArray:glTextureArray;
+      indexBottom,
+        indexTop:cardinal=0;
+    begin
+      fullTextureArray:=glGetTextures([16320,28550,3060,4080]);
+      bottomTextureArray:=fullTextureArray.extractID([16320,28550]).extractColourID([1120285,1844266],4);
+      topTextureArray:=fullTextureArray.extractID([3060,4080]).extractColourID([1317664,1714224],4);
+      if (bottomTextureArray.indexes()<2) or (topTextureArray.indexes()<2) then
+        exit;
+      for indexTop to topTextureArray.maxIndex()-1 do
+        begin
+          if (topTextureArray[indexTop].y<>topTextureArray[indexTop+1].y) then
+            continue;
+          for indexBottom:=0 to bottomTextureArray.maxIndex()-1 do
+            begin
+              if (bottomTextureArray[indexBottom].y<>bottomTextureArray[indexBottom+1].y) then
+                continue;
+              if (bottomTextureArray[indexBottom].y>topTextureArray[indexTop].y) and (bottomTextureArray[indexBottom].bounds.x1=topTextureArray[indexTop].bounds.x1) and (bottomTextureArray[indexBottom+1].bounds.x2=topTextureArray[indexTop+1].bounds.x2) then
+                begin
+                  if self.isInBox(intToBox(topTextureArray[indexTop].bounds.x1,topTextureArray[indexTop].bounds.y1,bottomTextureArray[indexBottom+1].bounds.x2,bottomTextureArray[indexBottom+1].bounds.y2)) then
+                    begin
+                      result:=true;
+                      break;
+                    end;
+                end;
+              inc(indexBottom);
+            end;
+          if result then
+            break;
+          inc(indexTop);
+        end;
+    end;
+
+  function glTexture.isBehindInterface(funcTextureArray:glTextureArray):boolean;overload;
+    var
+      bottomTextureArray,
+        topTextureArray:glTextureArray;
+      indexBottom,
+        indexTop:cardinal=0;
+    begin
+      bottomTextureArray:=funcTextureArray.extractID([16320,28550]).extractColourID([1120285,1844266],4);
+      topTextureArray:=funcTextureArray.extractID([3060,4080]).extractColourID([1317664,1714224],4);
+      if (bottomTextureArray.indexes()<2) or (topTextureArray.indexes()<2) then
+        exit;
+      for indexTop to topTextureArray.maxIndex()-1 do
+        begin
+          if (topTextureArray[indexTop].y<>topTextureArray[indexTop+1].y) then
+            continue;
+          for indexBottom:=0 to bottomTextureArray.maxIndex()-1 do
+            begin
+              if (bottomTextureArray[indexBottom].y<>bottomTextureArray[indexBottom+1].y) then
+                continue;
+              if (bottomTextureArray[indexBottom].y>topTextureArray[indexTop].y) and (bottomTextureArray[indexBottom].bounds.x1=topTextureArray[indexTop].bounds.x1) and (bottomTextureArray[indexBottom+1].bounds.x2=topTextureArray[indexTop+1].bounds.x2) then
+                begin
+                  if self.isInBox(intToBox(topTextureArray[indexTop].bounds.x1,topTextureArray[indexTop].bounds.y1,bottomTextureArray[indexBottom+1].bounds.x2,bottomTextureArray[indexBottom+1].bounds.y2)) then
+                    begin
+                      result:=true;
+                      break;
+                    end;
+                end;
+              inc(indexBottom);
+            end;
+          if result then
+            break;
+          inc(indexTop);
+        end;
+    end;
+
+{
+ ========================================
+ NOTE: The delete methods remove an index
+ from a point, model, or texture array.
+
+ EXAMPLES:
+ ----------------------------------------
+ pointArray:=[point(10,10),point(20,20),point(30,30)];
+ pointArray.remove(1);
+ writeLN(pointArray);
+ ========================================
+}
+
+  function glCharArray.delete(index:integer):glCharArray;
+    var
+      secondIndex:integer;
+    begin
+      result:=self;
+      if (index>=result.minIndex()) or (index<=result.maxIndex()) or (not result.isEmpty()) then
+        begin
+          for secondIndex:=index to result.maxIndex()-1 do
+            result[secondIndex]:=result[secondIndex+1];
+          setLength(result,result.maxIndex());
+        end;
+    end;
+
+  function glModelArray.delete(index:integer):glModelArray;
+    var
+      secondIndex:integer;
+    begin
+      result:=self;
+      if (index>=result.minIndex()) or (index<=result.maxIndex()) or (not result.isEmpty()) then
+        begin
+          for secondIndex:=index to result.maxIndex()-1 do
+            result[secondIndex]:=result[secondIndex+1];
+          setLength(result,result.maxIndex());
+        end;
+    end;
+
+  function glTextureArray.delete(index:integer):glTextureArray;
+    var
+      secondIndex:integer;
+    begin
+      result:=self;
+      if (index>=result.minIndex()) or (index<=result.maxIndex()) or (not result.isEmpty()) then
+        begin
+          for secondIndex:=index to result.maxIndex()-1 do
+            result[secondIndex]:=result[secondIndex+1];
+          setLength(result,result.maxIndex());
+        end;
+    end;
+
+  function tPointArray.delete(index:integer):tPointArray;
+    var
+      secondIndex:integer;
+    begin
+      result:=self;
+      if (index>=result.minIndex()) or (index<=result.maxIndex()) or (not result.isEmpty()) then
+        begin
+          for secondIndex:=index to result.maxIndex()-1 do
+            result[secondIndex]:=result[secondIndex+1];
+          setLength(result,result.maxIndex());
+        end;
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetPercent functions return
+ the player's current adrenaline, health,
+ prayer, or summoning percentages.
+
+ EXAMPLES:
+ ----------------------------------------
+ currentPrayer:=obsGetPrayerPoints();
+ writeLN('You currently have '+toStr(currentPrayer)+'% prayer.');
+ ----------------------------------------
+ writeLN('Avoid calling glGetTextures multiple times by passing a textureArray.');
+ textureArray:=glGetTextures(usefulTextures);
+ currentHealth:=obsGetLifePoints(textureArray);
+ currentPrayer:=obsGetPrayerPoints(textureArray);
+ currentSummoning:=obsGetSummoningPoints(textureArray);
+ ========================================
+}
+
+  function obsGetAdrenaline():integer;
+    var
+      adrenalineTexture:glTextureArray;
+    begin
+      if (adrenalineTexture:=glGetTextures(79179).extractColourID(14724672,4)).isEmpty() then
+        exit;
+      result:=floor(adrenalineTexture[0].width()/103*100);
+    end;
+
+  function obsGetAdrenaline(adrenalineTexture:glTextureArray):integer;overload;
+    begin
+      if (adrenalineTexture:=adrenalineTexture.extractID(79179).extractColourID(14724672,4)).isEmpty() then
+        exit;
+      result:=floor(adrenalineTexture[0].width()/103*100);
+    end;
+
+  function obsGetLifePoints():integer;
+    var
+      healthTexture:glTextureArray;
+    begin
+      if (healthTexture:=glGetTextures(79816).extractColourID(15419436,4)).isEmpty() then
+        exit;
+      result:=floor(healthTexture[0].width()/103*100);
+    end;
+
+  function obsGetLifePoints(healthTexture:glTextureArray):integer;overload;
+    begin
+      if (healthTexture:=healthTexture.extractID(79816).extractColourID(15419436,4)).isEmpty() then
+        exit;
+      result:=floor(healthTexture[0].width()/103*100);
+    end;
+
+  function obsGetPrayerPoints():integer;
+    var
+      prayerTexture:glTextureArray;
+    begin
+      if (prayerTexture:=glGetTextures(79816).extractColourID(6376084,4)).isEmpty() then
+        exit;
+      result:=floor(prayerTexture[0].width()/103*100);
+    end;
+
+  function obsGetPrayerPoints(prayerTexture:glTextureArray):integer;overload;
+    begin
+      if (prayerTexture:=prayerTexture.extractID(79816).extractColourID(6376084,4)).isEmpty() then
+        exit;
+      result:=floor(prayerTexture[0].width()/103*100);
+    end;
+
+  function obsGetSummoningPoints():integer;
+    var
+      prayerTexture:glTextureArray;
+    begin
+      if (prayerTexture:=glGetTextures(79816).extractColourID(889468,4)).isEmpty() then
+        exit;
+      result:=floor(prayerTexture[0].width()/103*100);
+    end;
+
+  function obsGetSummoningPoints(summoningTexture:glTextureArray):integer;overload;
+    begin
+      if (summoningTexture:=summoningTexture.extractID(79816).extractColourID(889468,4)).isEmpty() then
+        exit;
+      result:=floor(summoningTexture[0].width()/103*100);
+    end;
+
+ {
+ ========================================
+ NOTE: The obsCanThreshold and
+ obsCanUltimate functions return if a
+ player can activate a threshold or
+ ultimate ability.
+
+ EXAMPLES:
+ ----------------------------------------
+ canThreshold:=obsCanThreshold();
+ if canThreshold then
+  writeLN('You can activate a threshold ability.');
+ ========================================
+}
+
+  function obsCanThreshold():boolean;
+    begin
+      result:=obsGetAdrenaline()>=50;
+    end;
+
+  function obsCanThreshold(adrenalineTexture:glTextureArray):boolean;overload;
+    begin
+      result:=obsGetAdrenaline(adrenalineTexture)>=50;
+    end;
+
+  function obsCanUltimate():boolean;
+    begin
+      result:=obsGetAdrenaline()=100;
+    end;
+
+  function obsCanUltimate(adrenalineTexture:glTextureArray):boolean;overload;
+    begin
+      result:=obsGetAdrenaline(adrenalineTexture)=100;
+    end;
+
+{
+ ========================================
+ NOTE: The isInBox method returns whether
+ or not a point, model, or texture is
+ inside of a specified box.
+
+ EXAMPLES:
+ ----------------------------------------
+ mapBounds:=obsMiniMapBounds();
+ pointIsInBox:=point(100,200).isInBox(mapBounds);
+ writeLN('The point is on the minimap: '+toStr(pointIsInBox)+'.');
+ ========================================
+}
+
+  function tPoint.isInBox(funcBox:tBox):boolean;
+    begin
+      result:=not ((self.x<funcBox.x1) or (self.x>funcBox.x2) or (self.y<funcBox.y1) or (self.y>funcBox.y2));
+    end;
+
+  function glChar.isInBox(funcBox:tBox):boolean;
+    begin
+      result:=not ((self.x<funcBox.x1) or (self.x>funcBox.x2) or (self.y<funcBox.y1) or (self.y>funcBox.y2));
+    end;
+
+  function glModel.isInBox(funcBox:tBox):boolean;
+    begin
+      result:=not ((self.x<funcBox.x1) or (self.x>funcBox.x2) or (self.y<funcBox.y1) or (self.y>funcBox.y2));
+    end;
+
+  function glTexture.isInBox(funcBox:tBox):boolean;
+    begin
+      result:=not ((self.x<funcBox.x1) or (self.x>funcBox.x2) or (self.y<funcBox.y1) or (self.y>funcBox.y2));
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetCompassAngle and
+ obsGetCompassAngleE functions return the
+ minimap's current angle. A remake of the
+ gl_compassDeg function.
+
+ EXAMPLES:
+ ----------------------------------------
+ compassAngle:=obsGetCompassAngle();
+ writeLN('The compass angle is currently '+toStr(compassAngle)+' degrees.');
+ ========================================
+}
+
+  function obsGetCompassAngle(useNeedle:boolean=false):integer;
+    var
+      angle:extended;
+      mapX,
+        mapY:array[0..3] of single;
+      needleTexture:glTexture;
+    begin
+      if useNeedle then
+        begin
+          needleTexture:=glGetTextures(37222)[0]; //~ ColourID if needed: 657159
+          angle:=arcTan2(needleTexture.bounds.y2-needleTexture.bounds.y1,needleTexture.bounds.x2-needleTexture.bounds.x1)-0.785398163397448;
+        end
+      else
+        begin
+          glxMapCoords(mapX,mapY);
+          angle:=arcTan2(mapY[3]-mapY[0],mapX[3]-mapX[0]);
+        end;
+      if angle>0 then
+        result:=round(angle*360/(2*pi))
+      else
+        result:=round((2*pi+angle)*360/(2*pi));
+    end;
+
+  function obsGetCompassAngle(funcTextureArray:glTextureArray):integer;overload;
+    var
+      angle:extended;
+      mapX,
+        mapY:array[0..3] of single;
+      needleTexture:glTextureArray;
+    begin
+      needleTexture:=funcTextureArray.extractID(37222); //~ ColourID if needed: 657159
+      if (not needleTexture.isEmpty()) then
+        angle:=arcTan2(needleTexture[0].bounds.y2-needleTexture[0].bounds.y1,needleTexture[0].bounds.x2-needleTexture[0].bounds.x1)-0.785398163397448
+      else
+        begin
+          glxMapCoords(mapX,mapY);
+          angle:=arcTan2(mapY[3]-mapY[0],mapX[3]-mapX[0]);
+        end;
+      if angle>0 then
+        result:=round(angle*360/(2*pi))
+      else
+        result:=round((2*pi+angle)*360/(2*pi));
+    end;
+
+  function obsGetCompassAngleE(useNeedle:boolean=false):extended;
+    var
+      angle:extended;
+      mapX,
+        mapY:array[0..3] of single;
+      needleTexture:glTexture;
+    begin
+      if useNeedle then
+        begin
+          needleTexture:=glGetTextures(37222)[0]; //~ ColourID if needed: 657159
+          angle:=arcTan2(needleTexture.bounds.y2-needleTexture.bounds.y1,needleTexture.bounds.x2-needleTexture.bounds.x1)-0.785398163397448;
+        end
+      else
+        begin
+          glxMapCoords(mapX,mapY);
+          angle:=arcTan2(mapY[3]-mapY[0],mapX[3]-mapX[0]);
+        end;
+      if angle>0 then
+        result:=angle*360/(2*pi)
+      else
+        result:=(2*pi+angle)*360/(2*pi);
+    end;
+
+  function obsGetCompassAngleE(funcTextureArray:glTextureArray):extended;overload;
+    var
+      angle:extended;
+      mapX,
+        mapY:array[0..3] of single;
+      needleTexture:glTextureArray;
+    begin
+      needleTexture:=funcTextureArray.extractID(37222); //~ ColourID if needed: 657159
+      if (not needleTexture.isEmpty()) then
+        angle:=arcTan2(needleTexture[0].bounds.y2-needleTexture[0].bounds.y1,needleTexture[0].bounds.x2-needleTexture[0].bounds.x1)-0.785398163397448
+      else
+        begin
+          glxMapCoords(mapX,mapY);
+          angle:=arcTan2(mapY[3]-mapY[0],mapX[3]-mapX[0]);
+        end;
+      if angle>0 then
+        result:=angle*360/(2*pi)
+      else
+        result:=(2*pi+angle)*360/(2*pi);
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetCameraAngle and
+ obsGetCameraAngleE functions return the
+ current angle of the camera. This is a
+ value from 0 to 90. Keep in mind that in
+ most cases, the camera can not exceed 52
+ and can not reach 0.
+
+ EXAMPLES:
+ ----------------------------------------
+ compassAngle:=obsCompassDeg();
+ writeLN('The compass angle is currently '+toStr(compassAngle)+' degrees.');
+ ========================================
+}
+
+  function obsGetCameraAngle():integer;
+    var
+      modelView:array[0..15] of single;
+    begin
+      modelView:=glxMatrices^;
+      result:=round(90-modelView[5]*90);
+    end;
+
+  function obsGetCameraAngleE():extended;
+    var
+      modelView:array[0..15] of single;
+    begin
+      modelView:=glxMatrices^;
+      result:=90-modelView[5]*90;
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetMiniMapBounds functions
+ return the bounds to the player's
+ minimap.
+
+ EXAMPLES:
+ ----------------------------------------
+ glTextures:=glGetTextures([237147,386460]);
+ miniMapBounds:=obsMiniMapBounds(glTextures);
+ ----------------------------------------
+ miniMapBounds:=obsMiniMapBounds();
+ ========================================
+}
+
+  function obsGetMiniMapBounds():tBox;
+    var
+      index:cardinal=0;
+      funcTextureCornerArray:glTextureArray;
+    begin
+      funcTextureCornerArray:=glGetTextures([237147,386460]);
+      if funcTextureCornerArray.indexes()<>4  then
+        exit;
+      result:=[2147483647,2147483647,0,0];
+      for index to 3 do
+        begin
+          result.x1:=min(result.x1,funcTextureCornerArray[index].bounds.x1);
+          result.y1:=min(result.y1,funcTextureCornerArray[index].bounds.y1);
+          result.x2:=max(result.x2,funcTextureCornerArray[index].bounds.x2);
+          result.y2:=max(result.y2,funcTextureCornerArray[index].bounds.y2);
+        end;
+    end;
+
+  function obsGetMiniMapBounds(funcTextureArray:glTextureArray):tBox;overload;
+    var
+      index:cardinal;
+      funcTextureCornerArray:glTextureArray;
+    begin
+      funcTextureCornerArray:=funcTextureArray.extractID([237147,386460]);
+      if funcTextureCornerArray.indexes()<>4  then
+        exit;
+      result:=[2147483647,2147483647,0,0];
+      for index to 3 do
+        begin
+          result.x1:=min(result.x1,funcTextureCornerArray[index].bounds.x1);
+          result.y1:=min(result.y1,funcTextureCornerArray[index].bounds.y1);
+          result.x2:=max(result.x2,funcTextureCornerArray[index].bounds.x2);
+          result.y2:=max(result.y2,funcTextureCornerArray[index].bounds.y2);
+        end;
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetMiniMapMiddle functions
+ return the center point of the minimap.
+ This is where the player is located.
+
+ EXAMPLES:
+ ----------------------------------------
+ glTextures:=glGetTextures([237147,386460]);
+ miniMapMiddle:=obsMiniMapMiddle(glTextures);
+ ----------------------------------------
+ miniMapMiddle:=obsMiniMapMiddle();
+ ========================================
+}
+
+  function obsGetMiniMapMiddle():tPoint;
+    var
+      funcMiniMapBounds:tBox;
+    begin
+      funcMiniMapBounds:=obsGetMiniMapBounds();
+      result.x:=round(funcMiniMapBounds.x1+funcMiniMapBounds.width()/2);
+      result.y:=round(funcMiniMapBounds.y1+funcMiniMapBounds.height()/2);
+    end;
+
+  function obsGetMiniMapMiddle(funcTextureArray:glTextureArray):tPoint;overload;
+    var
+      funcMiniMapBounds:tBox;
+    begin
+      funcMiniMapBounds:=obsGetMiniMapBounds(funcTextureArray);
+      result.x:=round(funcMiniMapBounds.x1+funcMiniMapBounds.width()/2);
+      result.y:=round(funcMiniMapBounds.y1+funcMiniMapBounds.height()/2);
+    end;
+
+  function obsGetMiniMapMiddleE():floatPoint;
+    var
+      funcMiniMapBounds:tBox;
+    begin
+      funcMiniMapBounds:=obsGetMiniMapBounds();
+      result.x:=funcMiniMapBounds.x1+funcMiniMapBounds.width()/2;
+      result.y:=funcMiniMapBounds.y1+funcMiniMapBounds.height()/2;
+    end;
+
+  function obsGetMiniMapMiddleE(funcTextureArray:glTextureArray):floatPoint;overload;
+    var
+      funcMiniMapBounds:tBox;
+    begin
+      funcMiniMapBounds:=obsGetMiniMapBounds(funcTextureArray);
+      result.x:=funcMiniMapBounds.x1+funcMiniMapBounds.width()/2;
+      result.y:=funcMiniMapBounds.y1+funcMiniMapBounds.height()/2;
+    end;
+
+{
+ ========================================
+ NOTE: The obsLocalMap functions return
+ the player's current position on the
+ minimap, relative to the loaded minimap
+ tile. If inSquares is true, the result
+ will be in number of 3D world squares.
+
+ EXAMPLES:
+ ----------------------------------------
+ glTextures:=glGetTextures(usefulTextures);
+ playerPosition:=obsLocalMap(glTextures);
+ ----------------------------------------
+ playerPosition:=obsLocalMap();
+ ========================================
+}
+  {
+  function obsLocalMap(inSquares:boolean=false):tPoint;
+    var
+      angle:single;
+      mapX,
+        mapY:array[0..3] of single;
+      miniMapMiddle:tPoint;
+    begin
+      glxMapCoords(mapX,mapY);
+      minimapMiddle:=obsGetMiniMapMiddle();
+      angle:=arcTan2(mapY[3]-mapY[0],mapX[3]-mapX[0]);
+      if angle<0 then
+        angle:=2*pi+angle;
+      angle:=angle*-1;
+      if inSquares then
+        begin
+          result.x:=round((cos(angle)*(minimapMiddle.x-mapX[0])-sin(angle)*(minimapMiddle.y-mapY[0]))/4);
+          result.y:=round((sin(angle)*(minimapMiddle.x-mapX[0])+cos(angle)*(minimapMiddle.y-mapY[0]))/4);
+        end
+      else
+        begin
+          result.x:=round((cos(angle)*(minimapMiddle.x-mapX[0])-sin(angle)*(minimapMiddle.y-mapY[0])));
+          result.y:=round((sin(angle)*(minimapMiddle.x-mapX[0])+cos(angle)*(minimapMiddle.y-mapY[0])));
+        end;
+    end;
+
+  function obsLocalMap(inSquares:boolean=false;funcTextureArray:glTextureArray):tPoint;overload;
+    var
+      angle:single;
+      mapX,
+        mapY:array[0..3] of single;
+      miniMapMiddle:tPoint;
+    begin
+      glxMapCoords(mapX,mapY);
+      minimapMiddle:=obsGetMiniMapMiddle(funcTextureArray);
+      angle:=arcTan2(mapY[3]-mapY[0],mapX[3]-mapX[0]);
+      if angle<0 then
+        angle:=2*pi+angle;
+      angle:=angle*-1;
+      if inSquares then
+        begin
+          result.x:=round((cos(angle)*(minimapMiddle.x-mapX[0])-sin(angle)*(minimapMiddle.y-mapY[0]))/4);
+          result.y:=round((sin(angle)*(minimapMiddle.x-mapX[0])+cos(angle)*(minimapMiddle.y-mapY[0]))/4);
+        end
+      else
+        begin
+          result.x:=round((cos(angle)*(minimapMiddle.x-mapX[0])-sin(angle)*(minimapMiddle.y-mapY[0])));
+          result.y:=round((sin(angle)*(minimapMiddle.x-mapX[0])+cos(angle)*(minimapMiddle.y-mapY[0])));
+        end;
+    end;
+
+  function tPoint.obsLocalMap(inSquares:boolean=false):tPoint;
+    var
+      angle:single;
+      mapX,
+        mapY:array[0..3] of single;
+      miniMapMiddle:tPoint;
+    begin
+      glxMapCoords(mapX,mapY);
+      angle:=arcTan2(mapY[3]-mapY[0],mapX[3]-mapX[0]);
+      if angle<0 then
+        angle:=2*pi+angle;
+      angle:=angle*-1;
+      if inSquares then
+        begin
+          result.x:=round((cos(angle)*(self.x-mapX[0])-sin(angle)*(self.y-mapY[0]))/4);
+          result.y:=round((sin(angle)*(self.x-mapX[0])+cos(angle)*(self.y-mapY[0]))/4);
+        end
+      else
+        begin
+          result.x:=round((cos(angle)*(self.x-mapX[0])-sin(angle)*(self.y-mapY[0])));
+          result.y:=round((sin(angle)*(self.x-mapX[0])+cos(angle)*(self.y-mapY[0])));
+        end;
+    end;
+
+  function gltexture.obsLocalMap(inSquares:boolean=false):tPoint;
+    var
+      angle:single;
+      mapX,
+        mapY:array[0..3] of single;
+      miniMapMiddle:tPoint;
+    begin
+      glxMapCoords(mapX,mapY);
+      angle:=arcTan2(mapY[3]-mapY[0],mapX[3]-mapX[0]);
+      if angle<0 then
+        angle:=2*pi+angle;
+      angle:=angle*-1;
+      if inSquares then
+        begin
+          result.x:=round((cos(angle)*(self.x-mapX[0])-sin(angle)*(self.y-mapY[0]))/4);
+          result.y:=round((sin(angle)*(self.x-mapX[0])+cos(angle)*(self.y-mapY[0]))/4);
+        end
+      else
+        begin
+          result.x:=round((cos(angle)*(self.x-mapX[0])-sin(angle)*(self.y-mapY[0])));
+          result.y:=round((sin(angle)*(self.x-mapX[0])+cos(angle)*(self.y-mapY[0])));
+        end;
+    end;}
+
+
+  function obsLocalMap(inSquares:boolean=false):tPoint;
+    var
+      mapX,
+        mapY:array[0..3] of single;
+      miniMapMiddle:tPoint;
+    begin
+      glxMapCoords(mapX,mapY);
+      minimapMiddle:=obsGetMiniMapMiddle();
+      if inSquares then
+        begin
+          result.x:=round((((minimapMiddle.x-mapX[0])*(mapY[1]-mapY[0])-(minimapMiddle.y-mapY[0])*(mapX[1]-mapX[0]))*512.0/((mapX[3]-mapX[0])*(mapY[1]-mapY[0])-(mapY[3]-mapY[0])*(mapX[1]-mapX[0])))/4);
+          result.y:=round((((minimapMiddle.y-mapY[0])*(mapX[3]-mapX[0])-(minimapMiddle.x-mapX[0])*(mapY[3]-mapY[0]))*512.0/((mapX[3]-mapX[0])*(mapY[1]-mapY[0])-(mapY[3]-mapY[0])*(mapX[1]-mapX[0])))/4);
+        end
+      else
+        begin
+          result.x:=round(((minimapMiddle.x-mapX[0])*(mapY[1]-mapY[0])-(minimapMiddle.y-mapY[0])*(mapX[1]-mapX[0]))*512.0/((mapX[3]-mapX[0])*(mapY[1]-mapY[0])-(mapY[3]-mapY[0])*(mapX[1]-mapX[0])));
+          result.y:=round(((minimapMiddle.y-mapY[0])*(mapX[3]-mapX[0])-(minimapMiddle.x-mapX[0])*(mapY[3]-mapY[0]))*512.0/((mapX[3]-mapX[0])*(mapY[1]-mapY[0])-(mapY[3]-mapY[0])*(mapX[1]-mapX[0])));
+        end;
+    end;
+
+  function obsLocalMap(funcTextureArray:glTextureArray;inSquares:boolean=false):tPoint;overload;
+    var
+      mapX,
+        mapY:array[0..3] of single;
+      miniMapMiddle:tPoint;
+    begin
+      glxMapCoords(mapX,mapY);
+      minimapMiddle:=obsGetMiniMapMiddle(funcTextureArray);
+      if inSquares then
+        begin
+          result.x:=round((((minimapMiddle.x-mapX[0])*(mapY[1]-mapY[0])-(minimapMiddle.y-mapY[0])*(mapX[1]-mapX[0]))*512.0/((mapX[3]-mapX[0])*(mapY[1]-mapY[0])-(mapY[3]-mapY[0])*(mapX[1]-mapX[0])))/4);
+          result.y:=round((((minimapMiddle.y-mapY[0])*(mapX[3]-mapX[0])-(minimapMiddle.x-mapX[0])*(mapY[3]-mapY[0]))*512.0/((mapX[3]-mapX[0])*(mapY[1]-mapY[0])-(mapY[3]-mapY[0])*(mapX[1]-mapX[0])))/4);
+        end
+      else
+        begin
+          result.x:=round(((minimapMiddle.x-mapX[0])*(mapY[1]-mapY[0])-(minimapMiddle.y-mapY[0])*(mapX[1]-mapX[0]))*512.0/((mapX[3]-mapX[0])*(mapY[1]-mapY[0])-(mapY[3]-mapY[0])*(mapX[1]-mapX[0])));
+          result.y:=round(((minimapMiddle.y-mapY[0])*(mapX[3]-mapX[0])-(minimapMiddle.x-mapX[0])*(mapY[3]-mapY[0]))*512.0/((mapX[3]-mapX[0])*(mapY[1]-mapY[0])-(mapY[3]-mapY[0])*(mapX[1]-mapX[0])));
+        end;
+    end;
+
+  function tPoint.obsLocalMap(inSquares:boolean=false):tPoint;
+    var
+      mapX,
+        mapY:array[0..3] of single;
+    begin
+      glxMapCoords(mapX,mapY);
+      if inSquares then
+        begin
+          result.x:=round((((self.x-mapX[0])*(mapY[1]-mapY[0])-(self.y-mapY[0])*(mapX[1]-mapX[0]))*512.0/((mapX[3]-mapX[0])*(mapY[1]-mapY[0])-(mapY[3]-mapY[0])*(mapX[1]-mapX[0])))/4);
+          result.y:=round((((self.y-mapY[0])*(mapX[3]-mapX[0])-(self.x-mapX[0])*(mapY[3]-mapY[0]))*512.0/((mapX[3]-mapX[0])*(mapY[1]-mapY[0])-(mapY[3]-mapY[0])*(mapX[1]-mapX[0])))/4);
+        end
+      else
+        begin
+          result.x:=round(((self.x-mapX[0])*(mapY[1]-mapY[0])-(self.y-mapY[0])*(mapX[1]-mapX[0]))*512.0/((mapX[3]-mapX[0])*(mapY[1]-mapY[0])-(mapY[3]-mapY[0])*(mapX[1]-mapX[0])));
+          result.y:=round(((self.y-mapY[0])*(mapX[3]-mapX[0])-(self.x-mapX[0])*(mapY[3]-mapY[0]))*512.0/((mapX[3]-mapX[0])*(mapY[1]-mapY[0])-(mapY[3]-mapY[0])*(mapX[1]-mapX[0])));
+        end;
+    end;
+
+  function glTexture.obsLocalMap(inSquares:boolean=false):tPoint;
+    var
+      mapX,
+        mapY:array[0..3] of single;
+    begin
+      glxMapCoords(mapX,mapY);
+      if inSquares then
+        begin
+          result.x:=round((((self.x-mapX[0])*(mapY[1]-mapY[0])-(self.y-mapY[0])*(mapX[1]-mapX[0]))*512.0/((mapX[3]-mapX[0])*(mapY[1]-mapY[0])-(mapY[3]-mapY[0])*(mapX[1]-mapX[0])))/4);
+          result.y:=round((((self.y-mapY[0])*(mapX[3]-mapX[0])-(self.x-mapX[0])*(mapY[3]-mapY[0]))*512.0/((mapX[3]-mapX[0])*(mapY[1]-mapY[0])-(mapY[3]-mapY[0])*(mapX[1]-mapX[0])))/4);
+        end
+      else
+        begin
+          result.x:=round(((self.x-mapX[0])*(mapY[1]-mapY[0])-(self.y-mapY[0])*(mapX[1]-mapX[0]))*512.0/((mapX[3]-mapX[0])*(mapY[1]-mapY[0])-(mapY[3]-mapY[0])*(mapX[1]-mapX[0])));
+          result.y:=round(((self.y-mapY[0])*(mapX[3]-mapX[0])-(self.x-mapX[0])*(mapY[3]-mapY[0]))*512.0/((mapX[3]-mapX[0])*(mapY[1]-mapY[0])-(mapY[3]-mapY[0])*(mapX[1]-mapX[0])));
+        end;
+    end;
+
+
+{
+ ========================================
+ NOTE: The obsLocalMapReverse functions
+ act similar to the obsLocalMap
+ functions. However, when using
+ obsLocalMap, you supply a position on
+ screen and it returns the position on
+ the minimap. When using
+ obsLocalMapReverse, you supply the
+ position on the minimap and it returns
+ the position on screen. If inSquares is
+ true, the result will be in number of
+ 3D world squares.
+
+ EXAMPLES:
+ ----------------------------------------
+ writeLN('Moving mouse to 150,250 on the minimap tile...');
+ positionToMove:=obsLocalMapReverse(point(150,200));
+ mouse(positionToMove);
+ ----------------------------------------
+ writeLN('Moving mouse to 20,30th 3D squares on the minimap tile...');
+ positionToMove:=obsLocalMapReverse(point(20,30),true);
+ mouse(positionToMove);
+ ========================================
+}
+
+  function obsLocalMapReverse(position:tPoint;inSquares:boolean=false):tPoint;
+    var
+      angle:extended;
+      mapX,
+        mapY:array[0..3] of single;
+      newX,
+        newY:single;
+      needleTexture:glTextureArray;
+    begin
+      glxMapCoords(mapX,mapY);
+      if inSquares then
+        begin
+          newX:=position.x*4+mapX[0];
+          newY:=position.y*4+mapY[0];
+        end
+      else
+        begin
+          newX:=position.x+mapX[0];
+          newY:=position.y+mapY[0];
+        end;
+      angle:=arcTan2(mapY[3]-mapY[0],mapX[3]-mapX[0]);
+      if angle<0 then
+        angle:=2*pi+angle;
+      result.x:=round(cos(angle)*(newX-mapX[0])-sin(angle)*(newY-mapY[0])+mapX[0]);
+      result.y:=round(sin(angle)*(newX-mapX[0])+cos(angle)*(newY-mapY[0])+mapY[0]);
+    end;
+
+{
+ ========================================
+ NOTE: The obsMinimapClickAngle
+ procedures clicked a specified angle on
+ the minimap. If angleRelative is true,
+ the specified angle is offset by the
+ camera's current position.
+
+ Angle | Click
+ 0     | North
+ 45    | North-West
+ 90    | West
+ 135   | South-West
+ 180   | South
+ 225   | South-East
+ 270   | East
+ 315   | North-East
+ 360   | North
+
+ EXAMPLES:
+ ----------------------------------------
+ writeLN('Walking somewhere south with a 90 degress tolerance...');
+ obsMinimapClickAngle(180,90);
+ ----------------------------------------
+ writeLN('Walking somewhere up-left (regardless of current camera angle) with a 45 degress tolerance...');
+ obsMinimapClickAngle(45,457,false);
+ ----------------------------------------
+ writeLN('Walking somewhere north-east...');
+ obsMinimapClickAngle('NoRtH-EaSt');
+ ----------------------------------------
+ writeLN('Walking somewhere north-east with a 90 degree tolerance...');
+ obsMinimapClickAngle('south west',90);
+ ========================================
+}
+
+  procedure obsMinimapClickAngle(desiredAngle:integer;angleTolerance:integer=10;angleRelative:boolean=true);
+    var
+      boxCompass,
+        boxHomeTeleport,
+        boxRunEnergy,
+        boxWorldMap,
+        miniMapBounds:tBox;
+      clickPoint:tPoint;
+      radius,
+        randomScale:extended;
+      miniMapMiddle:floatPoint;
+    begin
+      if angleRelative then
+        desiredAngle:=desiredAngle-obsGetCompassAngle(); //~ NOTE: Change gl_CompassDeg to obsCompassDeg
+      desiredAngle:=360-(desiredAngle-floor(desiredAngle/360)*360)+random(round(angleTolerance/2)*-1,round(angleTolerance/2))-90;
+      miniMapBounds:=obsGetMiniMapBounds();
+      boxCompass:=intToBox(miniMapBounds.x1,miniMapBounds.y1,miniMapBounds.x1+40,miniMapBounds.y1+40);
+      boxHomeTeleport:=intToBox(miniMapBounds.x1,miniMapBounds.y2-40,miniMapBounds.x1+40,miniMapBounds.y2);
+      boxRunEnergy:=intToBox(miniMapBounds.x2-40,miniMapBounds.y1,miniMapBounds.x2,miniMapBounds.y1+40);
+      boxWorldMap:=intToBox(miniMapBounds.x2-40,miniMapBounds.y2-40,miniMapBounds.x2,miniMapBounds.y2);
+      radius:=sqrt(power(miniMapBounds.width()/2,2)+power(miniMapBounds.height()/2,2));
+      miniMapMiddle.x:=miniMapBounds.x1+miniMapBounds.width()/2;
+      miniMapMiddle.y:=miniMapBounds.y1+miniMapBounds.height()/2;
+      while true do
+        begin
+          randomScale:=randomE();
+          clickPoint.x:=round(miniMapMiddle.x+radius*cos(desiredAngle*pi/180)*randomScale);
+          clickPoint.y:=round(miniMapMiddle.y+radius*sin(desiredAngle*pi/180)*randomScale);
+          if ((not clickPoint.isInBox(miniMapBounds)) or clickPoint.isInBox(boxCompass) or clickPoint.isInBox(boxHomeTeleport) or clickPoint.isInBox(boxRunEnergy) or clickPoint.isInBox(boxWorldMap)) then
+            continue;
+          break;
+        end;
+      mouse(clickPoint,1);
+    end;
+
+  procedure obsMinimapClickAngle(desiredAngleString:ansiString;angleTolerance:integer=45;angleRelative:boolean=true);overload;
+    var
+      boxCompass,
+        boxHomeTeleport,
+        boxRunEnergy,
+        boxWorldMap,
+        miniMapBounds:tBox;
+      clickPoint:tPoint;
+      desiredAngle,
+        radius,
+        randomScale:extended;
+      miniMapMiddle:floatPoint;
+    begin
+      desiredAngleString:=replace(lowerCase(desiredAngleString),' ','-',[0,1]);
+      case desiredAngleString of
+        'north':desiredAngle:=0;
+        'north-west':desiredAngle:=45;
+        'west':desiredAngle:=90;
+        'south-west':desiredAngle:=135;
+        'south':desiredAngle:=180;
+        'south-east':desiredAngle:=225;
+        'east':desiredAngle:=270;
+        'north-east':desiredAngle:=315;
+        end;
+      if angleRelative then
+        desiredAngle:=desiredAngle-obsGetCompassAngle();
+      desiredAngle:=360-(desiredAngle-floor(desiredAngle/360)*360)+random(round(angleTolerance/2)*-1,round(angleTolerance/2))-90;
+      miniMapBounds:=obsGetMiniMapBounds();
+      boxCompass:=intToBox(miniMapBounds.x1,miniMapBounds.y1,miniMapBounds.x1+40,miniMapBounds.y1+40);
+      boxHomeTeleport:=intToBox(miniMapBounds.x1,miniMapBounds.y2-40,miniMapBounds.x1+40,miniMapBounds.y2);
+      boxRunEnergy:=intToBox(miniMapBounds.x2-40,miniMapBounds.y1,miniMapBounds.x2,miniMapBounds.y1+40);
+      boxWorldMap:=intToBox(miniMapBounds.x2-40,miniMapBounds.y2-40,miniMapBounds.x2,miniMapBounds.y2);
+      radius:=sqrt(power(miniMapBounds.width()/2,2)+power(miniMapBounds.height()/2,2));
+      miniMapMiddle.x:=miniMapBounds.x1+miniMapBounds.width()/2;
+      miniMapMiddle.y:=miniMapBounds.y1+miniMapBounds.height()/2;
+      while true do
+        begin
+          randomScale:=randomE();
+          clickPoint.x:=round(miniMapMiddle.x+radius*cos(desiredAngle*pi/180)*randomScale);
+          clickPoint.y:=round(miniMapMiddle.y+radius*sin(desiredAngle*pi/180)*randomScale);
+          if ((not clickPoint.isInBox(miniMapBounds)) or clickPoint.isInBox(boxCompass) or clickPoint.isInBox(boxHomeTeleport) or clickPoint.isInBox(boxRunEnergy) or clickPoint.isInBox(boxWorldMap)) then
+            continue;
+          break;
+        end;
+      mouse(clickPoint,1);
+    end;
+
+  procedure obsMinimapClickAngle(desiredAngle:integer;funcTextureArray:glTextureArray;angleTolerance:integer=10;angleRelative:boolean=true);overload;
+    var
+      boxCompass,
+        boxHomeTeleport,
+        boxRunEnergy,
+        boxWorldMap,
+        miniMapBounds:tBox;
+      clickPoint:tPoint;
+      radius,
+        randomScale:extended;
+      miniMapMiddle:floatPoint;
+    begin
+      if angleRelative then
+        desiredAngle:=desiredAngle-obsGetCompassAngle();
+      desiredAngle:=360-(desiredAngle-floor(desiredAngle/360)*360)+random(round(angleTolerance/2)*-1,round(angleTolerance/2))-90;
+      miniMapBounds:=obsGetMiniMapBounds(funcTextureArray);
+      boxCompass:=intToBox(miniMapBounds.x1,miniMapBounds.y1,miniMapBounds.x1+40,miniMapBounds.y1+40);
+      boxHomeTeleport:=intToBox(miniMapBounds.x1,miniMapBounds.y2-40,miniMapBounds.x1+40,miniMapBounds.y2);
+      boxRunEnergy:=intToBox(miniMapBounds.x2-40,miniMapBounds.y1,miniMapBounds.x2,miniMapBounds.y1+40);
+      boxWorldMap:=intToBox(miniMapBounds.x2-40,miniMapBounds.y2-40,miniMapBounds.x2,miniMapBounds.y2);
+      radius:=sqrt(power(miniMapBounds.width()/2,2)+power(miniMapBounds.height()/2,2));
+      miniMapMiddle.x:=miniMapBounds.x1+miniMapBounds.width()/2;
+      miniMapMiddle.y:=miniMapBounds.y1+miniMapBounds.height()/2;
+      while true do
+        begin
+          randomScale:=randomE();
+          clickPoint.x:=round(miniMapMiddle.x+radius*cos(desiredAngle*pi/180)*randomScale);
+          clickPoint.y:=round(miniMapMiddle.y+radius*sin(desiredAngle*pi/180)*randomScale);
+          if ((not clickPoint.isInBox(miniMapBounds)) or clickPoint.isInBox(boxCompass) or clickPoint.isInBox(boxHomeTeleport) or clickPoint.isInBox(boxRunEnergy) or clickPoint.isInBox(boxWorldMap)) then
+            continue;
+          break;
+        end;
+      mouse(clickPoint,1);
+    end;
+
+  procedure obsMinimapClickAngle(desiredAngleString:ansiString;funcTextureArray:glTextureArray;angleTolerance:integer=45;angleRelative:boolean=true);overload;
+    var
+      boxCompass,
+        boxHomeTeleport,
+        boxRunEnergy,
+        boxWorldMap,
+        miniMapBounds:tBox;
+      clickPoint:tPoint;
+      desiredAngle,
+        radius,
+        randomScale:extended;
+      miniMapMiddle:floatPoint;
+    begin
+      desiredAngleString:=replace(lowerCase(desiredAngleString),' ','-',[0,1]);
+      case desiredAngleString of
+        'north':desiredAngle:=0;
+        'north-west':desiredAngle:=45;
+        'west':desiredAngle:=90;
+        'south-west':desiredAngle:=135;
+        'south':desiredAngle:=180;
+        'south-east':desiredAngle:=225;
+        'east':desiredAngle:=270;
+        'north-east':desiredAngle:=315;
+        end;
+      if angleRelative then
+        desiredAngle:=desiredAngle-obsGetCompassAngle();
+      desiredAngle:=360-(desiredAngle-floor(desiredAngle/360)*360)+random(round(angleTolerance/2)*-1,round(angleTolerance/2))-90;
+      miniMapBounds:=obsGetMiniMapBounds(funcTextureArray);
+      boxCompass:=intToBox(miniMapBounds.x1,miniMapBounds.y1,miniMapBounds.x1+40,miniMapBounds.y1+40);
+      boxHomeTeleport:=intToBox(miniMapBounds.x1,miniMapBounds.y2-40,miniMapBounds.x1+40,miniMapBounds.y2);
+      boxRunEnergy:=intToBox(miniMapBounds.x2-40,miniMapBounds.y1,miniMapBounds.x2,miniMapBounds.y1+40);
+      boxWorldMap:=intToBox(miniMapBounds.x2-40,miniMapBounds.y2-40,miniMapBounds.x2,miniMapBounds.y2);
+      radius:=sqrt(power(miniMapBounds.width()/2,2)+power(miniMapBounds.height()/2,2));
+      miniMapMiddle.x:=miniMapBounds.x1+miniMapBounds.width()/2;
+      miniMapMiddle.y:=miniMapBounds.y1+miniMapBounds.height()/2;
+      while true do
+        begin
+          randomScale:=randomE();
+          clickPoint.x:=round(miniMapMiddle.x+radius*cos(desiredAngle*pi/180)*randomScale);
+          clickPoint.y:=round(miniMapMiddle.y+radius*sin(desiredAngle*pi/180)*randomScale);
+          if ((not clickPoint.isInBox(miniMapBounds)) or clickPoint.isInBox(boxCompass) or clickPoint.isInBox(boxHomeTeleport) or clickPoint.isInBox(boxRunEnergy) or clickPoint.isInBox(boxWorldMap)) then
+            continue;
+          break;
+        end;
+      mouse(clickPoint,1);
+    end;
+
+{
+ ========================================
+ NOTE: The obsMakeCompassDeg function
+ moves the camera to a desired angle with
+ a given tolerance. If the camera
+ sucecssfully reaches the desired angle
+ by the timeOut, the function returns
+ true.
+
+ Angle | Facing
+ 0     | North
+ 90    | West
+ 180   | South
+ 270   | East
+ 360   | North
+
+ EXAMPLES:
+ ----------------------------------------
+ writeLN('Randomly rotating the camera to face south-east...'));
+ obsMakeCompassDeg(225);
+ ----------------------------------------
+ writeLN('Randomly rotating the camera to face north-west...'));
+ obsMakeCompassDeg(45);
+ ----------------------------------------
+ writeLN('Randomly rotating the camera to face north...'));
+ obsMakeCompassDeg('north');
+ ========================================
+}
+
+  function obsShortestArcDeg(startAngle,endAngle:integer):integer;
+    begin
+      if abs(result:=endAngle-startAngle)<180 then
+        exit
+      else if startAngle<endAngle then
+        result:=result-360
+      else
+        result:=result+360;
+    end;
+
+  function obsShortestArcDeg(startAngle,endAngle:single):single;overload;
+    begin
+      if abs(result:=endAngle-startAngle)<180 then
+        exit
+      else if startAngle<endAngle then
+        result:=result-360
+      else
+        result:=result+360;
+    end;
+
+  function obsSetCompassAngle(desiredAngle:single=random(360);compassTolerance:integer=45;timeOut:integer=random(5000,10000)):boolean;
+    var
+      angleDistance,
+        currentAngle:single;
+      leftIsDown,
+        rightIsDown:boolean;
+      timeStart:integer;
+    begin
+      timeOut:=getSystemTime+timeOut;
+      timeStart:=getSystemTime;
+      angleDistance:=obsShortestArcDeg(obsGetCompassAngle(),desiredAngle);
+      while (abs(angleDistance:=obsShortestArcDeg(obsGetCompassAngle(),desiredAngle))>compassTolerance) and (getSystemTime<timeOut) do
+        begin
+          leftIsDown:=isKeyDown(37);
+          rightIsDown:=isKeyDown(39);
+          if (angleDistance<0) then
+            begin
+              if rightIsDown then
+                begin
+                  keyUp(39);
+                  if (not leftIsDown) then
+                    wait(random(250));
+                end;
+              if (not leftIsDown) then
+                keyDown(37);
+            end
+          else
+            begin
+              if leftIsDown then
+                begin
+                  keyUp(37);
+                  if (not rightIsDown) then
+                    wait(random(250));
+                end;
+              if (not rightIsDown) then
+                keyDown(39);
+            end;
+        end;
+      if isKeyDown(37) then
+        keyUp(37);
+      if isKeyDown(39) then
+        keyUp(39);
+      result:=abs(angleDistance:=obsShortestArcDeg(obsGetCompassAngle(),desiredAngle))<=compassTolerance;
+    end;
+
+  function obsSetCompassAngle(desiredAngleString:ansiString;compassTolerance:integer=10;timeOut:integer=random(5000,10000)):boolean;overload;
+    var
+      angleDistance,
+        currentAngle,
+        desiredAngle:single;
+      leftIsDown,
+        rightIsDown:boolean;
+      timeStart:integer;
+    begin
+      desiredAngleString:=replace(lowerCase(desiredAngleString),' ','-',[0,1]);
+      case desiredAngleString of
+        'north':desiredAngle:=0;
+        'north-west':desiredAngle:=45;
+        'west':desiredAngle:=90;
+        'south-west':desiredAngle:=135;
+        'south':desiredAngle:=180;
+        'south-east':desiredAngle:=225;
+        'east':desiredAngle:=270;
+        'north-east':desiredAngle:=315;
+        end;
+      timeOut:=getSystemTime+timeOut;
+      timeStart:=getSystemTime;
+      angleDistance:=obsShortestArcDeg(obsGetCompassAngle(),desiredAngle);
+      while (abs(angleDistance:=obsShortestArcDeg(obsGetCompassAngle(),desiredAngle))>compassTolerance) and (getSystemTime<timeOut) do
+        begin
+          leftIsDown:=isKeyDown(37);
+          rightIsDown:=isKeyDown(39);
+          if (angleDistance<0) then
+            begin
+              if rightIsDown then
+                begin
+                  keyUp(39);
+                  if (not leftIsDown) then
+                    wait(random(250));
+                end;
+              if (not leftIsDown) then
+                keyDown(37);
+            end
+          else
+            begin
+              if leftIsDown then
+                begin
+                  keyUp(37);
+                  if (not rightIsDown) then
+                    wait(random(250));
+                end;
+              if (not rightIsDown) then
+                keyDown(39);
+            end;
+        end;
+      if isKeyDown(37) then
+        keyUp(37);
+      if isKeyDown(39) then
+        keyUp(39);
+      result:=abs(angleDistance:=obsShortestArcDeg(obsGetCompassAngle(),desiredAngle))<=compassTolerance;
+    end;
+
+
+{
+ ========================================
+ NOTE: The obsSetCameraAngle function
+ moves the camera to a desired height
+ with a given tolerance. If the camera
+ sucecssfully reaches the desired height
+ by the timeOut, the function returns
+ true.
+
+ EXAMPLES:
+ ----------------------------------------
+ writeLN('Raisijng the camera to 45 degrees...'));
+ obsSetCameraAngle(45);
+ ----------------------------------------
+ writeLN('Lowering the camera to 15 degrees...'));
+ obsSetCameraAngle(15);
+ ----------------------------------------
+ writeLN('Randomly positioning the camera...'));
+ obsSetCameraAngle();
+ ========================================
+}
+
+  function obsSetCameraAngle(desiredAngle:single=random(25,50);compassTolerance:integer=5;timeOut:integer=random(5000,10000)):boolean;
+    var
+      angleDifference:single;
+      downIsDown,
+        upIsDown:boolean;
+    begin
+      timeOut:=getSystemTime+timeOut;
+      while (abs(angleDifference:=(obsGetCameraAngleE()-desiredAngle))>compassTolerance) and (getSystemTime<timeOut) do
+        begin
+          downIsDown:=isKeyDown(40);
+          upIsDown:=isKeyDown(38);
+          if angleDifference<0 then
+            begin
+              if downIsDown then
+                begin
+                  keyUp(40);
+                  if (not upIsDown) then
+                    wait(random(250));
+                end;
+              if (not upIsDown) then
+                keyDown(38);
+            end
+          else
+            begin
+              if upIsDown then
+                begin
+                  keyUp(38);
+                  if (not downIsDown) then
+                    wait(random(250));
+                end;
+              if (not downIsDown) then
+                keyDown(40);
+            end;
+        end;
+      if isKeyDown(38) then
+        keyUp(38);
+      if isKeyDown(40) then
+        keyUp(40);
+      result:=abs(obsGetCameraAngleE()-desiredAngle)<=compassTolerance;
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetAbilityColourID function
+ returns an ability's colour ID, given
+ it's name. It was written to be used by
+ functions within the obscurityLibrary
+ and is not recommended elsewhere.
+
+ EXAMPLES:
+ ----------------------------------------
+ colourID:=obsGetAbilityColourID('rApIdFiRe');
+ abilityTexture:=glGetTextures(137700,colourID,2);
+ ========================================
+}
+
+  function obsGetAbilityColourID(abilityName:ansiString):integer;
+    begin
+      abilityName:=replace(replace(lowerCase(abilityName),'''','',[0,1]),' ','',[0,1]);
+      case abilityName of
+      //~ Attack
+        'slice':result:=7364669;
+        'slaughter':result:=10185296;
+        'overpower':result:=9596437;
+        'havoc':result:=6769465;
+        'backhand':result:=9201723;
+        'forcefulbackhand':result:=8809002;
+        'smash':result:=11439683;
+        'barge':result:=5125654;
+        'flurry':result:=7103309;
+        'sever':result:=8806966;
+        'hurricane':result:=637750;
+        'massacre':result:=11236419;
+        'bloodtendrils':result:=11095045;
+        'meteorstrike':result:=8743189;
+        'balancedstrike':result:=8484394;
+      //~ Constitution
+        'sacrifice':result:=7687509;
+        'regenerate':result:=6957870;
+        'transfigure':result:=6573108;
+        'siphon':result:=6836031;
+        'incite':result:=6828336;
+        'guthixsblessing':result:=7427924;
+        'iceasylum':result:=6574688;
+      //~ Defence
+        'devotion':result:=5596780;
+        'anticipation':result:=8153941;
+        'bash':result:=7498076;
+        'revenge':result:=7103061;
+        'provoke':result:=3687237;
+        'immortality':result:=6184025;
+        'freedom':result:=5790556;
+        'reflect':result:=6252139;
+        'resonance':result:=6777706;
+        'rejuvenate':result:=6836800;
+        'debilitate':result:=6447711;
+        'preparation':result:=8288624;
+        'barricade':result:=7237487;
+        'naturalinstinct':result:=6579557;
+      //~ Magic
+        'asphyxiate':result:=7759718;
+        'wrack':result:=3692651;
+        'omnipower':result:=1916764;
+        'dragonbreath':result:=6376770;
+        'sonicwave':result:=674964;
+        'impact':result:=3626349;
+        'concentratedblast':result:=881846;
+        'deepimpact':result:=4613249;
+        'combust':result:=7299665;
+        'surge':result:=2896961;
+        'detonate':result:=5334644;
+        'chain':result:=4940147;
+        'wildmagic':result:=6319739;
+        'metamorphosis':result:=4014924;
+        'smoketendrils':result:=819042;
+        'tsunami':result:=1788774;
+        'sunshine':result:=4614018;
+      //~ Ranged
+        'piercingshot':result:=3162661;
+        'snapshot':result:=4211760;
+        'deadshot':result:=3822624;
+        'snipe':result:=10913393;
+        'dazingshot':result:=9409044;
+        'bindingshot':result:=6053420;
+        'needlestrike':result:=4286509;
+        'tightbindings':result:=4931369;
+        'fragmentationshot':result:=8745512;
+        'escape':result:=3684636;
+        'rapidfire':result:=3094570;
+        'ricochet':result:=3360288;
+        'bombardment':result:=5466151;
+        'incendiaryshot':result:=6773028;
+        'shadowtendrils':result:=5790559;
+        'unload':result:=5924412;
+        'deathsswiftness':result:=2240030;
+      //~ Strength
+        'stomp':result:=6897695;
+        'kick':result:=6636067;
+        'punish':result:=7423005;
+        'dismember':result:=5516033;
+        'fury':result:=7889227;
+        'destroy':result:=7423001;
+        'quake':result:=8152407;
+        'berserk':result:=6042378;
+        'cleave':result:=8673072;
+        'assault':result:=5520424;
+        'decimate':result:=6242081;
+        'pulverise':result:=6837057;
+        'frenzy':result:=7161369;
+      end;
+  end;
+
+
+ {
+ ========================================
+ NOTE: The obsAbilityIsOnCooldown
+ function returns whether or not an
+ ability is currently on cooldown. Note
+ that this does not mean if it can be
+ used. For example, an ultimate ability
+ may not be on cooldown, but may not be
+ ready.
+
+ EXAMPLES:
+ ----------------------------------------
+ isOnCooldown:=obsGetAbilityCooldown('Guthixs Blessing');
+ canUltimate:=obsCanUltimate();
+ if (not isOnCooldown) and canUltimate then
+  writeLN('Activating Guthix''s Blessing.');
+ ----------------------------------------
+ isOnCooldown:=obsAbilityIsOnCooldown('rApIdFiRe');
+ ========================================
+}
+
+  function obsGetAbilityCooldown(abilityName:ansiString):boolean;
+    var
+      abilityColourID,
+        abilitiesFound,
+        coolDownsFound:integer;
+      abilityTextureArray,
+        coolDownTextureArray,
+        fullTextureArray:gltextureArray;
+      abilityIndex,
+        coolDownIndex,
+        fullIndex:cardinal=0;
+    begin
+      abilityColourID:=obsGetAbilityColourID(abilityName);
+      fullTextureArray:=glGetTextures();
+      setLength(abilityTextureArray,fullTextureArray.indexes());
+      setLength(coolDownTextureArray,fullTextureArray.indexes());
+      for fullIndex to fullTextureArray.maxIndex() do
+        begin
+          if (fullTextureArray[fullIndex].ID mod 255=0) and (fullTextureArray[fullIndex].ID<>11220) and (fullTextureArray[fullIndex].ID<>3084480) and (fullTextureArray[fullIndex].ID<>85680)  and (fullTextureArray[fullIndex].ID<>137700) then
+            begin
+              coolDownTextureArray[coolDownsFound]:=fullTextureArray[fullIndex];
+              inc(coolDownsFound);
+            end
+          else if (fullTextureArray[fullIndex].ID=137700) and (fullTextureArray[fullIndex].width()<>27) and similarColors(fullTextureArray[fullIndex].colourID,abilityColourID,2) then
+            begin
+              abilityTextureArray[abilitiesFound]:=fullTextureArray[fullIndex];
+              inc(abilitiesFound);
+            end;
+        end;
+      setLength(abilityTextureArray,abilitiesFound);
+      setLength(coolDownTextureArray,coolDownsFound);
+      if (not abilityTextureArray.isEmpty()) and (not coolDownTextureArray.isEmpty()) then
+        begin
+          for coolDownIndex to coolDownTextureArray.maxIndex() do
+            begin
+              for abilityIndex:=0 to abilityTextureArray.maxIndex() do
+                if coolDownTextureArray[coolDownIndex].isInBox(abilityTextureArray[abilityIndex].bounds) then
+                  begin
+                    result:=true;
+                    break;
+                  end;
+              if result then
+                break;
+            end;
+        end
+      else if abilityTextureArray.isEmpty() then
+        result:=true;
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetAbilityQue functions
+ return whether or not an ability is
+ currently qued.
+
+ EXAMPLES:
+ ----------------------------------------
+ isOnCoolDown:=obsGetAbilityCooldown('Guthix''s Blessing');
+ isQued:=obsGetAbilityQue('Guthix''s Blessing');
+ canUltimate:=obsCanUltimate();
+ if (not isOnCoolDown) and (not isQued) and canUltimate then
+  writeLN('Activating Guthix''s Blessing.');
+ ----------------------------------------
+ isQued:=obsGetAbilityQue('rApIdFiRe');
+ ========================================
+}
+
+  function obsGetAbilityQue(abilityName:ansiString):boolean;
+    var
+      abilityColourID:integer;
+      abilityTextureArray,
+        quedTextureArray,
+        fullTextureArray:gltextureArray;
+      index:cardinal=0;
+    begin
+      abilityColourID:=obsGetAbilityColourID(abilityName);
+      if abilityColourID=0 then
+        exit;
+      fullTextureArray:=glGetTextures([137700,43320]);
+      abilityTextureArray:=fullTextureArray.extractID(137700).extractColourID(abilityColourID);
+      quedTextureArray:=fullTextureArray.extractID(43320);
+      if abilityTextureArray.isEmpty() or quedTextureArray.isEmpty() then
+        exit;
+      for index to abilityTextureArray.maxIndex() do
+        if quedTextureArray[0].isInBox(abilityTextureArray[index].bounds) then
+        begin
+          result:=true;
+          break;
+        end;
+    end;
+
+  function obsGetAbilityQue(abilityName:ansiString;funcTextureArray:glTextureArray):boolean;overload;
+    var
+      abilityColourID:integer;
+      abilityTextureArray,
+        quedTextureArray,
+        fullTextureArray:gltextureArray;
+      index:cardinal=0;
+    begin
+      abilityColourID:=obsGetAbilityColourID(abilityName);
+      if abilityColourID=0 then
+        exit;
+      abilityTextureArray:=funcTextureArray.extractID(137700).extractColourID(abilityColourID);
+      quedTextureArray:=funcTextureArray.extractID(43320);
+      if abilityTextureArray.isEmpty() or quedTextureArray.isEmpty() then
+        exit;
+      for index to abilityTextureArray.maxIndex() do
+        if quedTextureArray[0].isInBox(abilityTextureArray[index].bounds) then
+        begin
+          result:=true;
+          break;
+        end;
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetActionBar and
+ obsGetActionBarString functions
+ return the current ability bar number as
+ an integer or string, respectively.
+
+ EXAMPLES:
+ ----------------------------------------
+ actionBar:=obsGetActionBar();
+ if actionBar<>4 then
+  writeLN('Switch to action bar 4...');
+ ========================================
+}
+
+  function obsGetActionBar():integer;
+    var
+      abilityBarTextureArray:glTextureArray;
+      abilityBarCharArray:glCharArray;
+      charIndex:cardinal=0;
+    begin
+      abilityBarTextureArray:=glGetTextures(28793);
+      if (not abilityBarTextureArray.isEmpty()) then
+        begin
+          abilityBarCharArray:=glGetChars(abilityBarTextureArray[0].bounds).extractColourID(3111603,2);
+          if (not abilityBarCharArray.isEmpty()) then
+            result:=strToInt(abilityBarCharArray[0].letter);
+        end;
+    end;
+
+  function obsGetActionBar(funcTextureArray:glTextureArray):integer;overload;
+    var
+      abilityBarTextureArray:glTextureArray;
+      abilityBarCharArray:glCharArray;
+    begin
+      abilityBarTextureArray:=funcTextureArray.extractID(28793);
+      if (not abilityBarTextureArray.isEmpty()) then
+        begin
+          abilityBarCharArray:=glGetChars(abilityBarTextureArray[0].bounds).extractColourID(3111603,2);
+          if (not abilityBarCharArray.isEmpty()) then
+            result:=strToInt(abilityBarCharArray[0].letter);
+        end;
+    end;
+
+  function obsGetActionBarString():ansiString;
+    var
+      abilityBarTextureArray:glTextureArray;
+      abilityBarCharArray:glCharArray;
+    begin
+      abilityBarTextureArray:=glGetTextures(28793);
+      if (not abilityBarTextureArray.isEmpty()) then
+        begin
+          abilityBarCharArray:=glGetChars(abilityBarTextureArray[0].bounds).extractColourID(3111603,2);
+          if (not abilityBarCharArray.isEmpty()) then
+            result:=abilityBarCharArray[0].letter;
+        end;
+    end;
+
+  function obsGetActionBarString(funcTextureArray:glTextureArray):ansiString;overload;
+    var
+      abilityBarTextureArray:glTextureArray;
+      abilityBarCharArray:glCharArray;
+    begin
+      abilityBarTextureArray:=funcTextureArray.extractID(28793);
+      if (not abilityBarTextureArray.isEmpty()) then
+        begin
+          abilityBarCharArray:=glGetChars(abilityBarTextureArray[0].bounds).extractColourID(3111603,2);
+          if (not abilityBarCharArray.isEmpty()) then
+            result:=abilityBarCharArray[0].letter;
+        end;
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetAbilityKey functions
+ return the key required to activate the
+ desired ability via the actionbar.
+
+ EXAMPLES:
+ ----------------------------------------
+ abilityBarKey:=obsGetAbilityKey('rApIdFiRe');
+ if abilityBarKey<>'' then
+  sendKeys(abilityBarKey,60+random(60),60+random(60));
+ ========================================
+}
+
+  function obsGetAbilityKey(abilityName:ansiString):ansiString;
+    var
+      abilityCharArray:glCharArray;
+      abilityColourID:integer;
+      abilityTextureArray,
+        backgroundTextureArray,
+        fullTextureArray:glTextureArray;
+      abilityIndex,
+        backgroundIndex:cardinal=0;
+    begin
+      abilityColourID:=obsGetAbilityColourID(abilityName);
+      if abilityColourID=0 then
+        exit;
+      fullTextureArray:=glGetTextures([137700,9900]);
+      abilityTextureArray:=fullTextureArray.extractID(137700).extractColourID(abilityColourID,2);
+      backgroundTextureArray:=fullTextureArray.extractID(9900);
+      if abilityTextureArray.isEmpty() or backgroundTextureArray.isEmpty() then
+        exit;
+      for backgroundIndex to backgroundTextureArray.maxIndex() do
+        begin
+          for abilityIndex:=0 to abilityTextureArray.maxIndex() do
+            begin
+              if backgroundTextureArray[backgroundIndex].isInBox(abilityTextureArray[abilityIndex].bounds) then
+                begin
+                  abilityCharArray:=glGetChars(abilityTextureArray[abilityIndex].bounds.adjustPosition(0,15,-15,0)).extractID([191,320]).extractColourID(0,2);
+                  if (not abilityCharArray.isEmpty()) then
+                    result:=abilityCharArray[0].letter;
+                end;
+            end;
+            if result<>'' then
+              break;
+        end;
+    end;
+
+  function obsGetAbilityKey(abilityName:ansiString;funcTextureArray:glTextureArray):ansiString;overload;
+    var
+      abilityCharArray:glCharArray;
+      abilityCharBounds:tBox;
+      abilityColourID:integer;
+      abilityTextureArray,
+        backgroundTextureArray,
+        fullTextureArray:glTextureArray;
+      abilityIndex,
+        backgroundIndex:cardinal=0;
+    begin
+      abilityColourID:=obsGetAbilityColourID(abilityName);
+      if abilityColourID=0 then
+        exit;
+      fullTextureArray:=glGetTextures([137700,9900]);
+      abilityTextureArray:=fullTextureArray.extractID(137700).extractColourID(abilityColourID,2);
+      backgroundTextureArray:=fullTextureArray.extractID(9900);
+      if abilityTextureArray.isEmpty() or backgroundTextureArray.isEmpty() then
+        exit;
+      for backgroundIndex to backgroundTextureArray.maxIndex() do
+        begin
+          for abilityIndex:=0 to abilityTextureArray.maxIndex() do
+            begin
+              if backgroundTextureArray[backgroundIndex].isInBox(abilityTextureArray[abilityIndex].bounds) then
+                begin
+                  abilityCharArray:=glGetChars(abilityTextureArray[abilityIndex].bounds.adjustPosition(0,15,-15,0)).extractID([191,320]).extractColourID(0,2);
+                  if (not abilityCharArray.isEmpty()) then
+                    begin
+                      result:=abilityCharArray[0].letter;
+                      break;
+                    end;
+                end;
+            end;
+            if result<>'' then
+              break;
+        end;
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetActionSlotKey function
+ returns which key is required to
+ activate the specified action in a
+ specific slot.
+
+ EXAMPLES:
+ ----------------------------------------
+ keyToPress:=obsGetActionSlotKey(3);
+ writeLN('To activate the fourth ability, press '+keyToPress);
+ ========================================
+}
+
+
+  function obsGetActionSlotKey(slotNumber:integer):ansiString;
+    var
+      abilityCharArray:glCharArray;
+      backgroundTextureArray:glTextureArray;
+      keyBounds:tBox;
+    begin
+      backgroundTextureArray:=glGetTextures(9900);
+      if backgroundTextureArray.isEmpty() or (slotNumber>backgroundTextureArray.maxIndex()) then
+        exit;
+      keyBounds.x1:=backgroundTextureArray[slotNumber].x-15;
+      keyBounds.x2:=backgroundTextureArray[slotNumber].x;
+      keyBounds.y1:=backgroundTextureArray[slotNumber].y;
+      keyBounds.y2:=backgroundTextureArray[slotNumber].y+15;
+      abilityCharArray:=glGetChars(keyBounds).extractID([191,320]).extractColourID(0,2);
+      if (not abilityCharArray.isEmpty()) then
+        result:=abilityCharArray[0].letter;
+    end;
+
+  function obsGetActionKey(ID:integer):ansiString;
+    var
+      abilityCharArray:glCharArray;
+      actionTextureArray,
+        backgroundTextureArray,
+        fullTextureArray:glTextureArray;
+      keyBounds:tBox;
+      actionIndex,
+        backgroundIndex:cardinal=0;
+    begin
+      fullTextureArray:=glGetTextures();
+      actionTextureArray:=fullTextureArray.extractID(ID);
+      backgroundTextureArray:=fullTextureArray.extractID(9900);
+      if backgroundTextureArray.isEmpty() or actionTextureArray.isEmpty() then
+        exit;
+      for actionIndex to actionTextureArray.maxIndex() do
+        begin
+          for backgroundIndex to backgroundTextureArray.maxIndex() do
+            begin
+              if ((actionTextureArray[actionIndex].x<>backgroundTextureArray[backgroundIndex].x) and (actionTextureArray[actionIndex].x<>backgroundTextureArray[backgroundIndex].x+3)) or (actionTextureArray[actionIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                continue;
+              keyBounds.x1:=backgroundTextureArray[backgroundIndex].x-15;
+              keyBounds.x2:=backgroundTextureArray[backgroundIndex].x;
+              keyBounds.y1:=backgroundTextureArray[backgroundIndex].y;
+              keyBounds.y2:=backgroundTextureArray[backgroundIndex].y+15;
+              abilityCharArray:=glGetChars(keyBounds).extractID([191,320]);
+              if (not abilityCharArray.isEmpty()) then
+                result:=abilityCharArray[0].letter;
+              break;
+            end;
+          if result<>'' then
+            break;
+        end;
+    end;
+
+  function obsGetActionKey(IDs:tIntegerArray):ansiString;overload;
+    var
+      abilityCharArray:glCharArray;
+      actionTextureArray,
+        backgroundTextureArray,
+        fullTextureArray:glTextureArray;
+      keyBounds:tBox;
+      actionIndex,
+        backgroundIndex:cardinal=0;
+    begin
+      fullTextureArray:=glGetTextures();
+      actionTextureArray:=fullTextureArray.extractID(IDs);
+      backgroundTextureArray:=fullTextureArray.extractID(9900);
+      if backgroundTextureArray.isEmpty() or actionTextureArray.isEmpty() then
+        exit;
+      for actionIndex to actionTextureArray.maxIndex() do
+        begin
+          for backgroundIndex to backgroundTextureArray.maxIndex() do
+            begin
+              if ((actionTextureArray[actionIndex].x<>backgroundTextureArray[backgroundIndex].x) and (actionTextureArray[actionIndex].x<>backgroundTextureArray[backgroundIndex].x+3)) or (actionTextureArray[actionIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                continue;
+              keyBounds.x1:=backgroundTextureArray[backgroundIndex].x-15;
+              keyBounds.x2:=backgroundTextureArray[backgroundIndex].x;
+              keyBounds.y1:=backgroundTextureArray[backgroundIndex].y;
+              keyBounds.y2:=backgroundTextureArray[backgroundIndex].y+15;
+              abilityCharArray:=glGetChars(keyBounds).extractID([191,320]);
+              if (not abilityCharArray.isEmpty()) then
+                result:=abilityCharArray[0].letter;
+              break;
+            end;
+          if result<>'' then
+            break;
+        end;
+    end;
+
+  function obsGetActionKey(ID,colourID:integer;tolerance:integer=4):ansiString;overload;
+    var
+      abilityCharArray:glCharArray;
+      actionTextureArray,
+        backgroundTextureArray,
+        fullTextureArray:glTextureArray;
+      keyBounds:tBox;
+      actionIndex,
+        backgroundIndex:cardinal=0;
+    begin
+      fullTextureArray:=glGetTextures();
+      actionTextureArray:=fullTextureArray.extractID(ID).extractColourID(colourID,tolerance);
+      backgroundTextureArray:=fullTextureArray.extractID(9900);
+      if backgroundTextureArray.isEmpty() or actionTextureArray.isEmpty() then
+        exit;
+      for actionIndex to actionTextureArray.maxIndex() do
+        begin
+          for backgroundIndex to backgroundTextureArray.maxIndex() do
+            begin
+              if ((actionTextureArray[actionIndex].x<>backgroundTextureArray[backgroundIndex].x) and (actionTextureArray[actionIndex].x<>backgroundTextureArray[backgroundIndex].x+3)) or (actionTextureArray[actionIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                continue;
+              keyBounds.x1:=backgroundTextureArray[backgroundIndex].x-15;
+              keyBounds.x2:=backgroundTextureArray[backgroundIndex].x;
+              keyBounds.y1:=backgroundTextureArray[backgroundIndex].y;
+              keyBounds.y2:=backgroundTextureArray[backgroundIndex].y+15;
+              abilityCharArray:=glGetChars(keyBounds).extractID([191,320]);
+              if (not abilityCharArray.isEmpty()) then
+                result:=abilityCharArray[0].letter;
+              break;
+            end;
+          if result<>'' then
+            break;
+        end;
+    end;
+
+  function obsGetActionKey(IDs:tIntegerArray;colourID:integer;tolerance:integer=4):ansiString;overload;
+    var
+      abilityCharArray:glCharArray;
+      actionTextureArray,
+        backgroundTextureArray,
+        fullTextureArray:glTextureArray;
+      keyBounds:tBox;
+      actionIndex,
+        backgroundIndex:cardinal=0;
+    begin
+      fullTextureArray:=glGetTextures();
+      actionTextureArray:=fullTextureArray.extractID(IDs).extractColourID(colourID,tolerance);
+      backgroundTextureArray:=fullTextureArray.extractID(9900);
+      if backgroundTextureArray.isEmpty() or actionTextureArray.isEmpty() then
+        exit;
+      for actionIndex to actionTextureArray.maxIndex() do
+        begin
+          for backgroundIndex to backgroundTextureArray.maxIndex() do
+            begin
+              if ((actionTextureArray[actionIndex].x<>backgroundTextureArray[backgroundIndex].x) and (actionTextureArray[actionIndex].x<>backgroundTextureArray[backgroundIndex].x+3)) or (actionTextureArray[actionIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                continue;
+              keyBounds.x1:=backgroundTextureArray[backgroundIndex].x-15;
+              keyBounds.x2:=backgroundTextureArray[backgroundIndex].x;
+              keyBounds.y1:=backgroundTextureArray[backgroundIndex].y;
+              keyBounds.y2:=backgroundTextureArray[backgroundIndex].y+15;
+              abilityCharArray:=glGetChars(keyBounds).extractID([191,320]);
+              if (not abilityCharArray.isEmpty()) then
+                result:=abilityCharArray[0].letter;
+              break;
+            end;
+          if result<>'' then
+            break;
+        end;
+    end;
+
+  function obsGetActionKey(IDs,colourIDs:tIntegerArray;tolerance:integer=4):ansiString;overload;
+    var
+      abilityCharArray:glCharArray;
+      actionTextureArray,
+        backgroundTextureArray,
+        fullTextureArray:glTextureArray;
+      keyBounds:tBox;
+      actionIndex,
+        backgroundIndex:cardinal=0;
+    begin
+      fullTextureArray:=glGetTextures();
+      actionTextureArray:=fullTextureArray.extractID(IDs).extractColourID(colourIDs,tolerance);
+      backgroundTextureArray:=fullTextureArray.extractID(9900);
+      if backgroundTextureArray.isEmpty() or actionTextureArray.isEmpty() then
+        exit;
+      for actionIndex to actionTextureArray.maxIndex() do
+        begin
+          for backgroundIndex to backgroundTextureArray.maxIndex() do
+            begin
+              if ((actionTextureArray[actionIndex].x<>backgroundTextureArray[backgroundIndex].x) and (actionTextureArray[actionIndex].x<>backgroundTextureArray[backgroundIndex].x+3)) or (actionTextureArray[actionIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                continue;
+              keyBounds.x1:=backgroundTextureArray[backgroundIndex].x-15;
+              keyBounds.x2:=backgroundTextureArray[backgroundIndex].x;
+              keyBounds.y1:=backgroundTextureArray[backgroundIndex].y;
+              keyBounds.y2:=backgroundTextureArray[backgroundIndex].y+15;
+              abilityCharArray:=glGetChars(keyBounds).extractID([191,320]);
+              if (not abilityCharArray.isEmpty()) then
+                result:=abilityCharArray[0].letter;
+              break;
+            end;
+          if result<>'' then
+            break;
+        end;
+    end;
+
+  function obsGetActionKey(ID:integer;colourIDs:tIntegerArray;tolerance:integer=4):ansiString;overload;
+    var
+      abilityCharArray:glCharArray;
+      actionTextureArray,
+        backgroundTextureArray,
+        fullTextureArray:glTextureArray;
+      keyBounds:tBox;
+      actionIndex,
+        backgroundIndex:cardinal=0;
+    begin
+      fullTextureArray:=glGetTextures();
+      actionTextureArray:=fullTextureArray.extractID(ID).extractColourID(colourIDs,tolerance);
+      backgroundTextureArray:=fullTextureArray.extractID(9900);
+      if backgroundTextureArray.isEmpty() or actionTextureArray.isEmpty() then
+        exit;
+      for actionIndex to actionTextureArray.maxIndex() do
+        begin
+          for backgroundIndex to backgroundTextureArray.maxIndex() do
+            begin
+              if ((actionTextureArray[actionIndex].x<>backgroundTextureArray[backgroundIndex].x) and (actionTextureArray[actionIndex].x<>backgroundTextureArray[backgroundIndex].x+3)) or (actionTextureArray[actionIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                continue;
+              keyBounds.x1:=backgroundTextureArray[backgroundIndex].x-15;
+              keyBounds.x2:=backgroundTextureArray[backgroundIndex].x;
+              keyBounds.y1:=backgroundTextureArray[backgroundIndex].y;
+              keyBounds.y2:=backgroundTextureArray[backgroundIndex].y+15;
+              abilityCharArray:=glGetChars(keyBounds).extractID([191,320]);
+              if (not abilityCharArray.isEmpty()) then
+                result:=abilityCharArray[0].letter;
+              break;
+            end;
+          if result<>'' then
+            break;
+        end;
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetInventoryCount function
+ returns the total number of items being
+ carried by the player.
+
+ EXAMPLES:
+ ----------------------------------------
+ carriedItems:=obsInventoryCount();
+ writeLN('The player is carrying '+toStr(carriedItems)+' items.');
+ ========================================
+}
+
+  function obsGetInventoryCount():integer;
+    var
+      backgroundTextureArray,
+        fullTextureArray:glTextureArray;
+      backgroundIndex,
+        fullIndex:cardinal=0;
+    begin
+      fullTextureArray:=glGetTextures();
+      backgroundTextureArray:=fullTextureArray.extractID(88625);
+      if (not backgroundTextureArray.isEmpty()) then
+        for fullIndex to fullTextureArray.maxIndex() do
+          if (fullTextureArray[fullIndex].ID<>88625) and (fullTextureArray[fullIndex].ID<>3786240) then
+            for backgroundIndex:=0 to backgroundTextureArray.maxIndex() do
+              begin
+                if (fullTextureArray[fullIndex].x<>backgroundTextureArray[backgroundIndex].x+2) or (fullTextureArray[fullIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                  continue;
+                result:=result+1;
+                break;
+              end;
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetInventorySlot function
+ returns the glTexture of the item
+ occupying the specified inventory slot.
+ Keep in mind that inventory items go
+ from 0 to 27.
+
+ EXAMPLES:
+ ----------------------------------------
+ item3:=obsGetInventorySlot(3);
+ if item3.id=92055 then
+  writeLN('The item in the fourth slot is a flask.');
+ ========================================
+}
+
+  function obsGetInventorySlot(slotNumber:integer):glTexture;
+    var
+      backgroundTextureArray,
+        fullTextureArray:glTextureArray;
+      index:cardinal=0;
+    begin
+      fullTextureArray:=glGetTextures();
+      backgroundTextureArray:=fullTextureArray.extractID(88625);
+      if backgroundTextureArray.isEmpty() or (slotNumber>backgroundTextureArray.maxIndex()) then
+        exit;
+      for index to fullTextureArray.maxIndex() do
+        begin
+          if (fullTextureArray[index].x<>backgroundTextureArray[slotNumber].x+2) or (fullTextureArray[index].y<>backgroundTextureArray[slotNumber].y) then
+            continue;
+          result:=fullTextureArray[index];
+          break;
+        end;
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetInventoryItem functions
+ returns a glTextureArray of inventory
+ items matching the specified ID(s) and
+ colourID(s).
+
+ EXAMPLES:
+ ----------------------------------------
+ itemList:=obsGetInventoryItem(92055);
+ if (not itemList.isEmpty()) then
+  begin
+   writeLN('Clicking the 1st found item...');
+   mouse(itemList[0].toPoint(),1);
+  end;
+ ========================================
+}
+
+  function obsGetInventoryItem(ID:integer):glTextureArray;
+    var
+      backgroundTextureArray,
+        fullTextureArray,
+        itemTextureArray:glTextureArray;
+      backgroundIndex,
+        foundIndex,
+        itemIndex:cardinal=0;
+    begin
+      fullTextureArray:=glGetTextures();
+      backgroundTextureArray:=fullTextureArray.extractID(88625);
+      itemTextureArray:=fullTextureArray.extractID(ID);
+      if (not backgroundTextureArray.isEmpty()) and (not itemTextureArray.isEmpty()) then
+        begin
+          setLength(result,backgroundTextureArray.indexes());
+          for itemIndex to itemTextureArray.maxIndex() do
+            if (itemTextureArray[itemIndex].ID<>88625) and (itemTextureArray[itemIndex].ID<>3786240) then
+              for backgroundIndex:=0 to backgroundTextureArray.maxIndex() do
+                begin
+                  if (itemTextureArray[itemIndex].x<>backgroundTextureArray[backgroundIndex].x+2) or (itemTextureArray[itemIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                    continue;
+                  result[foundIndex]:=itemTextureArray[itemIndex];
+                  foundIndex:=foundIndex+1;
+                  break;
+                end;
+          setLength(result,foundIndex);
+        end;
+    end;
+
+  function obsGetInventoryItem(ID:integer;funcTextureArray:glTextureArray):glTextureArray;overload;
+    var
+      backgroundTextureArray,
+        itemTextureArray:glTextureArray;
+      backgroundIndex,
+        foundIndex,
+        itemIndex:cardinal=0;
+    begin
+      backgroundTextureArray:=funcTextureArray.extractID(88625);
+      itemTextureArray:=funcTextureArray.extractID(ID);
+      if (not backgroundTextureArray.isEmpty()) and (not itemTextureArray.isEmpty()) then
+        begin
+          setLength(result,backgroundTextureArray.indexes());
+          for itemIndex to itemTextureArray.maxIndex() do
+            if (itemTextureArray[itemIndex].ID<>88625) and (itemTextureArray[itemIndex].ID<>3786240) then
+              for backgroundIndex:=0 to backgroundTextureArray.maxIndex() do
+                begin
+                  if (itemTextureArray[itemIndex].x<>backgroundTextureArray[backgroundIndex].x+2) or (itemTextureArray[itemIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                    continue;
+                  result[foundIndex]:=itemTextureArray[itemIndex];
+                  foundIndex:=foundIndex+1;
+                  break;
+                end;
+          setLength(result,foundIndex);
+        end;
+    end;
+
+  function obsGetInventoryItem(IDs:tIntegerArray):glTextureArray;overload;
+    var
+      backgroundTextureArray,
+        fullTextureArray,
+        itemTextureArray:glTextureArray;
+      backgroundIndex,
+        foundIndex,
+        itemIndex:cardinal=0;
+    begin
+      fullTextureArray:=glGetTextures();
+      backgroundTextureArray:=fullTextureArray.extractID(88625);
+      itemTextureArray:=fullTextureArray.extractID(IDs);
+      if (not backgroundTextureArray.isEmpty()) and (not itemTextureArray.isEmpty()) then
+        begin
+          setLength(result,backgroundTextureArray.indexes());
+          for itemIndex to itemTextureArray.maxIndex() do
+            if (itemTextureArray[itemIndex].ID<>88625) and (itemTextureArray[itemIndex].ID<>3786240) then
+              for backgroundIndex:=0 to backgroundTextureArray.maxIndex() do
+                begin
+                  if (itemTextureArray[itemIndex].x<>backgroundTextureArray[backgroundIndex].x+2) or (itemTextureArray[itemIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                    continue;
+                  result[foundIndex]:=itemTextureArray[itemIndex];
+                  foundIndex:=foundIndex+1;
+                  break;
+                end;
+          setLength(result,foundIndex);
+        end;
+    end;
+
+  function obsGetInventoryItem(IDs:tIntegerArray;funcTextureArray:glTextureArray):glTextureArray;overload;
+    var
+      backgroundTextureArray,
+        itemTextureArray:glTextureArray;
+      backgroundIndex,
+        foundIndex,
+        itemIndex:cardinal=0;
+    begin
+      backgroundTextureArray:=funcTextureArray.extractID(88625);
+      itemTextureArray:=funcTextureArray.extractID(IDs);
+      if (not backgroundTextureArray.isEmpty()) and (not itemTextureArray.isEmpty()) then
+        begin
+          setLength(result,backgroundTextureArray.indexes());
+          for itemIndex to itemTextureArray.maxIndex() do
+            if (itemTextureArray[itemIndex].ID<>88625) and (itemTextureArray[itemIndex].ID<>3786240) then
+              for backgroundIndex:=0 to backgroundTextureArray.maxIndex() do
+                begin
+                  if (itemTextureArray[itemIndex].x<>backgroundTextureArray[backgroundIndex].x+2) or (itemTextureArray[itemIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                    continue;
+                  result[foundIndex]:=itemTextureArray[itemIndex];
+                  foundIndex:=foundIndex+1;
+                  break;
+                end;
+          setLength(result,foundIndex);
+        end;
+    end;
+
+  function obsGetInventoryItem(ID,colourID:integer;tolerance:integer=4):glTextureArray;overload;
+    var
+      backgroundTextureArray,
+        fullTextureArray,
+        itemTextureArray:glTextureArray;
+      backgroundIndex,
+        foundIndex,
+        itemIndex:cardinal=0;
+    begin
+      fullTextureArray:=glGetTextures();
+      backgroundTextureArray:=fullTextureArray.extractID(88625);
+      itemTextureArray:=fullTextureArray.extractID(ID).extractColourID(colourID,tolerance);
+      if (not backgroundTextureArray.isEmpty()) and (not itemTextureArray.isEmpty()) then
+        begin
+          setLength(result,backgroundTextureArray.indexes());
+          for itemIndex to itemTextureArray.maxIndex() do
+            if (itemTextureArray[itemIndex].ID<>88625) and (itemTextureArray[itemIndex].ID<>3786240) then
+              for backgroundIndex:=0 to backgroundTextureArray.maxIndex() do
+                begin
+                  if (itemTextureArray[itemIndex].x<>backgroundTextureArray[backgroundIndex].x+2) or (itemTextureArray[itemIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                    continue;
+                  result[foundIndex]:=itemTextureArray[itemIndex];
+                  foundIndex:=foundIndex+1;
+                  break;
+                end;
+          setLength(result,foundIndex);
+        end;
+    end;
+
+  function obsGetInventoryItem(ID,colourID:integer;tolerance:integer=4;funcTextureArray:glTextureArray):glTextureArray;overload;
+    var
+      backgroundTextureArray,
+        itemTextureArray:glTextureArray;
+      backgroundIndex,
+        foundIndex,
+        itemIndex:cardinal=0;
+    begin
+      backgroundTextureArray:=funcTextureArray.extractID(88625);
+      itemTextureArray:=funcTextureArray.extractID(ID).extractColourID(colourID,tolerance);
+      if (not backgroundTextureArray.isEmpty()) and (not itemTextureArray.isEmpty()) then
+        begin
+          setLength(result,backgroundTextureArray.indexes());
+          for itemIndex to itemTextureArray.maxIndex() do
+            if (itemTextureArray[itemIndex].ID<>88625) and (itemTextureArray[itemIndex].ID<>3786240) then
+              for backgroundIndex:=0 to backgroundTextureArray.maxIndex() do
+                begin
+                  if (itemTextureArray[itemIndex].x<>backgroundTextureArray[backgroundIndex].x+2) or (itemTextureArray[itemIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                    continue;
+                  result[foundIndex]:=itemTextureArray[itemIndex];
+                  foundIndex:=foundIndex+1;
+                  break;
+                end;
+          setLength(result,foundIndex);
+        end;
+    end;
+
+  function obsGetInventoryItem(IDs,colourIDs:tIntegerArray;tolerance:integer=4):glTextureArray;overload;
+    var
+      backgroundTextureArray,
+        fullTextureArray,
+        itemTextureArray:glTextureArray;
+      backgroundIndex,
+        foundIndex,
+        itemIndex:cardinal=0;
+    begin
+      fullTextureArray:=glGetTextures();
+      backgroundTextureArray:=fullTextureArray.extractID(88625);
+      itemTextureArray:=fullTextureArray.extractID(IDs).extractColourID(colourIDs,tolerance);
+      if (not backgroundTextureArray.isEmpty()) and (not itemTextureArray.isEmpty()) then
+        begin
+          setLength(result,backgroundTextureArray.indexes());
+          for itemIndex to itemTextureArray.maxIndex() do
+            if (itemTextureArray[itemIndex].ID<>88625) and (itemTextureArray[itemIndex].ID<>3786240) then
+              for backgroundIndex:=0 to backgroundTextureArray.maxIndex() do
+                begin
+                  if (itemTextureArray[itemIndex].x<>backgroundTextureArray[backgroundIndex].x+2) or (itemTextureArray[itemIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                    continue;
+                  result[foundIndex]:=itemTextureArray[itemIndex];
+                  foundIndex:=foundIndex+1;
+                  break;
+                end;
+          setLength(result,foundIndex);
+        end;
+    end;
+
+  function obsGetInventoryItem(IDs,colourIDs:tIntegerArray;tolerance:integer=4;funcTextureArray:glTextureArray):glTextureArray;overload;
+    var
+      backgroundTextureArray,
+        itemTextureArray:glTextureArray;
+      backgroundIndex,
+        foundIndex,
+        itemIndex:cardinal=0;
+    begin
+      backgroundTextureArray:=funcTextureArray.extractID(88625);
+      itemTextureArray:=funcTextureArray.extractID(IDs).extractColourID(colourIDs,tolerance);
+      if (not backgroundTextureArray.isEmpty()) and (not itemTextureArray.isEmpty()) then
+        begin
+          setLength(result,backgroundTextureArray.indexes());
+          for itemIndex to itemTextureArray.maxIndex() do
+            if (itemTextureArray[itemIndex].ID<>88625) and (itemTextureArray[itemIndex].ID<>3786240) then
+              for backgroundIndex:=0 to backgroundTextureArray.maxIndex() do
+                begin
+                  if (itemTextureArray[itemIndex].x<>backgroundTextureArray[backgroundIndex].x+2) or (itemTextureArray[itemIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                    continue;
+                  result[foundIndex]:=itemTextureArray[itemIndex];
+                  foundIndex:=foundIndex+1;
+                  break;
+                end;
+          setLength(result,foundIndex);
+        end;
+    end;
+
+  function obsGetInventoryItem(ID:integer;colourIDs:tIntegerArray;tolerance:integer=4):glTextureArray;overload;
+    var
+      backgroundTextureArray,
+        fullTextureArray,
+        itemTextureArray:glTextureArray;
+      backgroundIndex,
+        foundIndex,
+        itemIndex:cardinal=0;
+    begin
+      fullTextureArray:=glGetTextures();
+      backgroundTextureArray:=fullTextureArray.extractID(88625);
+      itemTextureArray:=fullTextureArray.extractID(ID).extractColourID(colourIDs,tolerance);
+      if (not backgroundTextureArray.isEmpty()) and (not itemTextureArray.isEmpty()) then
+        begin
+          setLength(result,backgroundTextureArray.indexes());
+          for itemIndex to itemTextureArray.maxIndex() do
+            if (itemTextureArray[itemIndex].ID<>88625) and (itemTextureArray[itemIndex].ID<>3786240) then
+              for backgroundIndex:=0 to backgroundTextureArray.maxIndex() do
+                begin
+                  if (itemTextureArray[itemIndex].x<>backgroundTextureArray[backgroundIndex].x+2) or (itemTextureArray[itemIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                    continue;
+                  result[foundIndex]:=itemTextureArray[itemIndex];
+                  foundIndex:=foundIndex+1;
+                  break;
+                end;
+          setLength(result,foundIndex);
+        end;
+    end;
+
+  function obsGetInventoryItem(ID:integer;colourIDs:tIntegerArray;tolerance:integer=4;funcTextureArray:glTextureArray):glTextureArray;overload;
+    var
+      backgroundTextureArray,
+        itemTextureArray:glTextureArray;
+      backgroundIndex,
+        foundIndex,
+        itemIndex:cardinal=0;
+    begin
+      backgroundTextureArray:=funcTextureArray.extractID(88625);
+      itemTextureArray:=funcTextureArray.extractID(ID).extractColourID(colourIDs,tolerance);
+      if (not backgroundTextureArray.isEmpty()) and (not itemTextureArray.isEmpty()) then
+        begin
+          setLength(result,backgroundTextureArray.indexes());
+          for itemIndex to itemTextureArray.maxIndex() do
+            if (itemTextureArray[itemIndex].ID<>88625) and (itemTextureArray[itemIndex].ID<>3786240) then
+              for backgroundIndex:=0 to backgroundTextureArray.maxIndex() do
+                begin
+                  if (itemTextureArray[itemIndex].x<>backgroundTextureArray[backgroundIndex].x+2) or (itemTextureArray[itemIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                    continue;
+                  result[foundIndex]:=itemTextureArray[itemIndex];
+                  foundIndex:=foundIndex+1;
+                  break;
+                end;
+          setLength(result,foundIndex);
+        end;
+    end;
+
+  function obsGetInventoryItem(IDs:tIntegerArray;colourID:integer;tolerance:integer=4):glTextureArray;overload;
+    var
+      backgroundTextureArray,
+        fullTextureArray,
+        itemTextureArray:glTextureArray;
+      backgroundIndex,
+        foundIndex,
+        itemIndex:cardinal=0;
+    begin
+      fullTextureArray:=glGetTextures();
+      backgroundTextureArray:=fullTextureArray.extractID(88625);
+      itemTextureArray:=fullTextureArray.extractID(IDs).extractColourID(colourID,tolerance);
+      if (not backgroundTextureArray.isEmpty()) and (not itemTextureArray.isEmpty()) then
+        begin
+          setLength(result,backgroundTextureArray.indexes());
+          for itemIndex to itemTextureArray.maxIndex() do
+            if (itemTextureArray[itemIndex].ID<>88625) and (itemTextureArray[itemIndex].ID<>3786240) then
+              for backgroundIndex:=0 to backgroundTextureArray.maxIndex() do
+                begin
+                  if (itemTextureArray[itemIndex].x<>backgroundTextureArray[backgroundIndex].x+2) or (itemTextureArray[itemIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                    continue;
+                  result[foundIndex]:=itemTextureArray[itemIndex];
+                  foundIndex:=foundIndex+1;
+                  break;
+                end;
+          setLength(result,foundIndex);
+        end;
+    end;
+
+  function obsGetInventoryItem(IDs:tIntegerArray;colourID:integer;tolerance:integer=4;funcTextureArray:glTextureArray):glTextureArray;overload;
+    var
+      backgroundTextureArray,
+        itemTextureArray:glTextureArray;
+      backgroundIndex,
+        foundIndex,
+        itemIndex:cardinal=0;
+    begin
+      backgroundTextureArray:=funcTextureArray.extractID(88625);
+      itemTextureArray:=funcTextureArray.extractID(IDs).extractColourID(colourID,tolerance);
+      if (not backgroundTextureArray.isEmpty()) and (not itemTextureArray.isEmpty()) then
+        begin
+          setLength(result,backgroundTextureArray.indexes());
+          for itemIndex to itemTextureArray.maxIndex() do
+            if (itemTextureArray[itemIndex].ID<>88625) and (itemTextureArray[itemIndex].ID<>3786240) then
+              for backgroundIndex:=0 to backgroundTextureArray.maxIndex() do
+                begin
+                  if (itemTextureArray[itemIndex].x<>backgroundTextureArray[backgroundIndex].x+2) or (itemTextureArray[itemIndex].y<>backgroundTextureArray[backgroundIndex].y) then
+                    continue;
+                  result[foundIndex]:=itemTextureArray[itemIndex];
+                  foundIndex:=foundIndex+1;
+                  break;
+                end;
+          setLength(result,foundIndex);
+        end;
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetInventoryFull function
+ returns whether or not the player's
+ inventory is currently carrying 28
+ items.
+
+ EXAMPLES:
+ ----------------------------------------
+ inventoryIsFull:=obsGetInventoryFull();
+ if inventoryIsFull then
+  writeLN('The player currently has a full inventory.');
+ ========================================
+}
+
+  function obsGetInventoryFull():boolean;
+    begin
+      result:=obsGetInventoryCount()>=28;
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetRunMode function returns
+ whether or not run-mode is enabled.
+
+ EXAMPLES:
+ ----------------------------------------
+ runModeIsOn:=obsGetRunMode();
+ if runModeIsOn then
+  writeLN('The player is running.')
+ else
+  writeLN('The player is walking.');
+ ========================================
+}
+
+  function obsGetRunMode():boolean;
+    var
+      funcTextureArray:glTextureArray;
+    begin
+      funcTextureArray:=glGetTextures([17107,24081]);
+      result:=funcTextureArray.extractID(17107).isEmpty() and (not funcTextureArray.extractID(24081).isEmpty());
+    end;
+
+  function obsGetRunMode(funcTextureArray:glTextureArray):boolean;overload;
+    begin
+      result:=funcTextureArray.extractID(17107).isEmpty() and (not funcTextureArray.extractID(24081).isEmpty());
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetRunEnergy function
+ returns the player's run energy percent.
+
+ EXAMPLES:
+ ----------------------------------------
+ runEnergy:=obsGetRunEnergy();
+ writeLN('The player has '+toStr(runEnergy)+'% energy remaining...');
+ ========================================
+}
+
+  function obsGetRunEnergy():integer;
+    var
+      funcCharArray:glCharArray;
+      funcTextureArray:glTextureArray;
+        indexChar:cardinal=0;
+        tempResult:ansiString;
+    begin
+      funcTextureArray:=glGetTextures([159981,171817]);
+      if funcTextureArray.isEmpty() then
+        exit;
+      funcCharArray:=glGetChars(funcTextureArray[0].bounds).extractID(191).extractColourID(16777215,4);
+      if funcCharArray.isEmpty() then
+        exit;
+      for indexChar to funcCharArray.maxIndex() do
+        begin
+          case funcCharArray[indexChar].letter of
+            '0'..'9':tempResult:=tempResult+funcCharArray[indexChar].letter;
+          end;
+        end;
+      if tempResult<>'' then
+        result:=strToInt(tempResult);
+    end;
+
+{
+ ========================================
+ NOTE: The obsSetRunMode functions
+ toggle the run mode on and off.
+
+ EXAMPLES:
+ ----------------------------------------
+ toggleSucceeded:=obsSetRunMode();
+ if (not toggleSucceeded) then
+  writeLN('I couldn't find the run icon...');
+ ----------------------------------------
+ obsSetRunMode();
+ ========================================
+}
+
+  procedure obsSetRunMode();
+    var
+      runBackgroundArray:glTextureArray;
+    begin
+      runBackgroundArray:=glGetTextures([159981,171817]);
+      if runBackgroundArray.isEmpty() then
+        exit;
+      mouse(runBackgroundArray[0].randomizePointEllipse(34),1);
+    end;
+
+  procedure obsSetRunMode(runModeEnabled:boolean);overload;
+    var
+      funcBackgroundTextureArray,
+        funcFullTextureArray,
+        funcRunIconTextureArray:glTextureArray;
+    begin
+      funcFullTextureArray:=glGetTextures([159981,17107,171817,24081]);
+      funcBackgroundTextureArray:=funcFullTextureArray.extractID([159981,171817]);
+      funcRunIconTextureArray:=funcFullTextureArray.extractID([17107,24081]);
+      if funcBackgroundTextureArray.isEmpty() or funcRunIconTextureArray.isEmpty() or (obsGetRunMode(funcRunIconTextureArray)=runModeEnabled) then
+        exit;
+      mouse(funcBackgroundTextureArray[0].randomizePointEllipse(34),1);
+    end;
+
+  procedure obsSetRunMode(funcTextureArray:glTextureArray);overload;
+    begin
+      funcTextureArray:=funcTextureArray.extractID([159981,171817]);
+      if funcTextureArray.isEmpty() then
+        exit;
+      mouse(funcTextureArray[0].randomizePointEllipse(34),1);
+    end;
+
+  procedure obsSetRunMode(runModeEnabled:boolean;funcTextureArray:glTextureArray);overload;
+    var
+      funcBackgroundTextureArray,
+        funcRunIconTextureArray:glTextureArray;
+    begin
+      funcBackgroundTextureArray:=funcTextureArray.extractID([159981,171817]);
+      funcRunIconTextureArray:=funcTextureArray.extractID([17107,24081]);
+      if funcBackgroundTextureArray.isEmpty() or funcRunIconTextureArray.isEmpty() or (obsGetRunMode(funcRunIconTextureArray)=runModeEnabled) then
+        exit;
+      mouse(funcBackgroundTextureArray[0].randomizePointEllipse(34),1);
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetAutoRetaliate function
+ returns whether or not autoretaliate is
+ enabled.
+
+ EXAMPLES:
+ ----------------------------------------
+ isAutoRetaliating:=obsGetAutoRetaliate();
+ if isAutoRetaliating then
+  writeLN('The player is not autoretaliating...');
+ ========================================
+}
+
+  function obsGetAutoRetaliate():boolean;
+    var
+      funcTextureArray:glTextureArray;
+    begin
+      funcTextureArray:=glGetTextures([17914,19200,27966]);
+      result:=funcTextureArray.extractID([17914,19200]).isEmpty() and (not funcTextureArray.extractID(27966).isEmpty());
+    end;
+
+  function obsGetAutoRetaliate(funcTextureArray:glTextureArray):boolean;overload;
+    begin
+      result:=funcTextureArray.extractID([17914,19200]).isEmpty() and (not funcTextureArray.extractID(27966).isEmpty());
+    end;
+
+{
+ ========================================
+ NOTE: The obsSetAutoRetaliate functions
+ toggle autoretaliate on and off.
+
+ EXAMPLES:
+ ----------------------------------------
+
+ ----------------------------------------
+
+ ========================================
+}
+
+  procedure obsSetAutoRetaliate();
+    var
+      autoRetaliateIconArray:glTextureArray;
+    begin
+      autoRetaliateIconArray:=glGetTextures([17914,19200,27966]);
+      if autoRetaliateIconArray.isEmpty() then
+        exit;
+      mouse(autoRetaliateIconArray[0].randomizePointEllipse(26),1);
+    end;
+
+  procedure obsSetAutoRetaliate(autoRetaliateEnabled:boolean);overload;
+    var
+      funcTextureArray:glTextureArray;
+    begin
+      funcTextureArray:=glGetTextures([17914,19200,27966]);
+      if funcTextureArray.isEmpty() or (obsGetAutoRetaliate(funcTextureArray)=autoRetaliateEnabled) then
+        exit;
+      mouse(funcTextureArray[0].randomizePointEllipse(26),1);
+    end;
+
+  procedure obsSetAutoRetaliate(funcTextureArray:glTextureArray);overload;
+    begin
+      funcTextureArray:=funcTextureArray.extractID([17914,19200,27966]);
+      if funcTextureArray.isEmpty() then
+        exit;
+      mouse(funcTextureArray[0].randomizePointEllipse(26),1);
+    end;
+
+  procedure obsSetAutoRetaliate(autoRetaliateEnabled:boolean;funcTextureArray:glTextureArray);overload;
+    begin
+      funcTextureArray:=funcTextureArray.extractID([17914,19200,27966]);
+      if funcTextureArray.isEmpty() or (obsGetAutoRetaliate(funcTextureArray)=autoRetaliateEnabled) then
+        exit;
+      mouse(funcTextureArray[0].randomizePointEllipse(26),1);
+    end;
+
+{
+ ========================================
+ NOTE: The obsGetChooseOption function
+ returns a string array of available
+ option selections. For example, an
+ option while speaking to a banker is,
+ "I'd like to check my PIN settings."
+ Results are lowercase with spaces and
+ special characters removed.
+
+ EXAMPLES:
+ ----------------------------------------
+ availableOptions:=obsGetChooseOption();
+ writeLN('The available options are:');
+ writeLN(availableOptions);
+ ========================================
+}
+
+  function obsGetChooseOption():tStringArray;
+    var
+      charArrayOption:glCharArray;
+      indexBackground,
+        indexChar:cardinal=0;
+      textureArrayBackground:glTextureArray;
+    begin
+      textureArrayBackground:=glGetTextures(65800);
+      charArrayOption:=glGetChars().extractID([191,38]).extractColourID([13158600,37083],4);
+      if textureArrayBackground.isEmpty() or charArrayOption.isEmpty() then
+        exit;
+      setLength(result,textureArrayBackground.indexes());
+      for indexChar to charArrayOption.maxIndex() do
+        if charArrayOption[indexChar].isInBox(textureArrayBackground[0].bounds) then
+          break;
+      for indexBackground to textureArrayBackground.maxIndex() do
+        begin
+          for indexChar to charArrayOption.maxIndex() do
+            begin
+              if charArrayOption[indexChar].isInBox(textureArrayBackground[indexBackground].bounds) then
+                begin
+                  case charArrayOption[indexChar].letter of
+                    '0'..'9':result[indexBackground]:=result[indexBackground]+lowercase(charArrayOption[indexChar].letter);
+                    'a'..'z':result[indexBackground]:=result[indexBackground]+lowercase(charArrayOption[indexChar].letter);
+                    'A'..'Z':result[indexBackground]:=result[indexBackground]+lowercase(charArrayOption[indexChar].letter);
+                  end
+                end
+              else
+                begin
+                  indexChar:=indexChar+2;
+                  break;
+                end;
+            end;
+        end;
+    end;
+
+{
+ ========================================
+ NOTE: The obsSetChooseOption function
+ selects an option, if it exists, by
+ either pressing the relative button or
+ clicking it. Options are not case
+ sensitive and special characters will
+ be ignored.
+
+ EXAMPLES:
+ ----------------------------------------
+ availableOptions:=obsGetChooseOption();
+ if availableOptions.contains('seeyouaround') then
+   obsSetChooseOption('SeE yOu ArOuNd!@#$');
+ ========================================
+}
+
+  function obsSetChooseOption(option:ansiString):boolean;
+    var
+      charArrayOption:glCharArray;
+      indexBackground,
+        indexChar:cardinal=0;
+      optionStringArray:tStringArray;
+      textureArrayBackground:glTextureArray;
+    begin
+      textureArrayBackground:=glGetTextures(65800);
+      charArrayOption:=glGetChars().extractID([191,38]).extractColourID([13158600,37083],4);
+      if textureArrayBackground.isEmpty() or charArrayOption.isEmpty() then
+        exit;
+      setLength(optionStringArray,textureArrayBackground.indexes());
+      option:=replaceRegExpr('(\W|_)*',lowercase(option),'',false);
+      for indexChar to charArrayOption.maxIndex() do
+        if charArrayOption[indexChar].isInBox(textureArrayBackground[0].bounds) then
+          break;
+      for indexBackground to textureArrayBackground.maxIndex() do
+        begin
+          for indexChar to charArrayOption.maxIndex() do
+            begin
+              if charArrayOption[indexChar].isInBox(textureArrayBackground[indexBackground].bounds) then
+                begin
+                  case charArrayOption[indexChar].letter of
+                    '0'..'9':optionStringArray[indexBackground]:=optionStringArray[indexBackground]+charArrayOption[indexChar].letter;
+                    'a'..'z':optionStringArray[indexBackground]:=optionStringArray[indexBackground]+charArrayOption[indexChar].letter;
+                    'A'..'Z':optionStringArray[indexBackground]:=optionStringArray[indexBackground]+charArrayOption[indexChar].letter;
+                  end
+                end
+              else
+                begin
+                  if pos(option,lowercase(optionStringArray[indexBackground]))>0 then
+                    begin
+                      if randomChance(2) then
+                        mouseBox(textureArrayBackground[indexBackground].bounds,1)
+                      else
+                        sendKeys(toStr(indexBackground+1),60+random(60),60+random(60));
+                      result:=true;
+                    end
+                  else
+                    indexChar:=indexChar+2;
+                  break;
+                end;
+              if result then
+                break;
+            end;
+        end;
+    end;
+
+  function obsSetChooseOption(option:tStringArray):boolean;overload;
+    var
+      charArrayOption:glCharArray;
+      indexBackground,
+        indexChar,
+        indexOption:cardinal=0;
+      optionStringArray:tStringArray;
+      textureArrayBackground:glTextureArray;
+    begin
+      textureArrayBackground:=glGetTextures(65800);
+      charArrayOption:=glGetChars().extractID([191,38]).extractColourID([13158600,37083],4);
+      if textureArrayBackground.isEmpty() or charArrayOption.isEmpty() then
+        exit;
+      setLength(optionStringArray,textureArrayBackground.indexes());
+      for indexChar to charArrayOption.maxIndex() do
+        if charArrayOption[indexChar].isInBox(textureArrayBackground[0].bounds) then
+          break;
+      for indexBackground to textureArrayBackground.maxIndex() do
+        begin
+          for indexChar to charArrayOption.maxIndex() do
+            begin
+              if charArrayOption[indexChar].isInBox(textureArrayBackground[indexBackground].bounds) then
+                begin
+                  case charArrayOption[indexChar].letter of
+                    '0'..'9':optionStringArray[indexBackground]:=optionStringArray[indexBackground]+charArrayOption[indexChar].letter;
+                    'a'..'z':optionStringArray[indexBackground]:=optionStringArray[indexBackground]+charArrayOption[indexChar].letter;
+                    'A'..'Z':optionStringArray[indexBackground]:=optionStringArray[indexBackground]+charArrayOption[indexChar].letter;
+                  end
+                end
+              else
+                begin
+                  for indexOption:=0 to option.maxIndex() do
+                    begin
+                      if pos(replaceRegExpr('(\W|_)*',lowercase(option[indexOption]),'',false),lowercase(optionStringArray[indexBackground]))>0 then
+                        begin
+                          if randomChance(2) then
+                            mouseBox(textureArrayBackground[indexBackground].bounds,1)
+                          else
+                            sendKeys(toStr(indexBackground+1),60+random(60),60+random(60));
+                          result:=true;
+                        end;
+                    end;
+                  if not result then
+                    indexChar:=indexChar+2;
+                  break;
+                end;
+              if result then
+                break;
+            end;
+        end;
+    end;
+
+
+
+
+
+  function ansiString.parseInt(defaultInteger:integer=0):integer;
+    var
+      tempString:ansiString;
+    begin
+      tempString:=replaceRegExpr('(\D)*',self,'',false);
+      if tempString<>'' then
+        result:=strToInt(tempString)
+      else
+        result:=defaultInteger;
+    end;
+
+  function glCharArray.parseInt(defaultInteger:integer=0):integer;
+    var
+      charIndex:cardinal=0;
+    begin
+      if self.isEmpty() then
+        exit;
+      for charIndex to self.maxIndex() do
+        begin
+          case self[charIndex].letter of
+            '0'..'9':result:=result*10+strToInt(self[charIndex].letter);
+          end;
+        end;
+      if result=0 then
+        result:=defaultInteger;
+    end;
+
+  function glCharArray.parseAlpha():string;
+    var
+      charIndex:cardinal=0;
+    begin
+      if self.isEmpty() then
+        exit;
+      for charIndex to self.maxIndex() do
+        begin
+          case self[charIndex].letter of
+            '0'..'9':result:=result+self[charIndex].letter;
+            'a'..'z':result:=result+self[charIndex].letter;
+            'A'..'Z':result:=result+self[charIndex].letter;
+          end;
+        end;
+    end;
+
+  function glCharArray.alphaNumeric():glCharArray;overload;
+    var
+      charIndex:cardinal=0;
+      resultFound:integer=0;
+    begin
+      if self.isEmpty() then
+        exit;
+      setLength(result,self.indexes());
+      for charIndex to self.maxIndex() do
+        begin
+          case self[charIndex].letter of
+            '0'..'9':
+              begin
+                result[resultFound]:=self[charIndex];
+                resultFound:=resultFound+1;
+              end;
+            'a'..'z':
+              begin
+                result[resultFound]:=self[charIndex];
+                resultFound:=resultFound+1;
+              end;
+            'A'..'Z':
+              begin
+                result[resultFound]:=self[charIndex];
+                resultFound:=resultFound+1;
+              end;
+          end;
+        end;
+      setLength(result,resultFound);
+    end;
