@@ -2,11 +2,12 @@
 {$i SRL-6/SRL.simba}
 {$i ezForm.simba}
 {$include_once ogLib/lib/core/core.Simba}
+//{$include_once obscurityLibraryUpload.simba}
 
 const
   mainScreenX = 576;
   mainScreenY = 378;
-  VERSION = 1.00;
+  VERSION = 0.99;
   soundFile:= '../Air Horn.wav';
 
 var
@@ -26,13 +27,42 @@ begin
     writeln(str);
 end;
 
+procedure createDirectoryList(str: String);
+var
+  directories: TStringArray;
+  currentDirectory: String;
+  i, count: int32;
+begin
+  directories:= explode('/', str);
+  count:= high(directories);
+  for i:=0 to count do
+  begin
+    currentDirectory:= currentDirectory + directories[i] + '/';
+    if((directories[i] <> '..') and (not DirectoryExists(currentDirectory)))then
+      CreateDirectory(currentDirectory);
+  end;
+end;
+
+function getDirectoryFromFile(str: String): String;
+var
+  i, count: int32;
+  directories: TStringArray;
+begin
+  directories:= explode('/', str);
+  count:= high(directories) - 1;
+  for i:=0 to count do
+  begin
+    result:= result + directories[i] + '/';
+  end;
+end;
+
 procedure unexpectedOccurrence(key, message: string; sound: boolean);
 var
   directory: string;
 begin
   directory:= ScriptPath + explode('.', ScriptFile)[0];
   if(not DirectoryExists(directory))then
-    CreateDirectory(directory);
+    createDirectoryList(directory);
   WriteINI('CodeFix', key, message, directory + '\Settings.ini');
   if(sound)then
     PlaySound(soundFile);
@@ -50,13 +80,16 @@ begin
   result:= (check > beginningPoint) and (check < endPoint);
 end;
 
-//Downloads 'fileLocation' and stores at 'fileName'
-procedure DownloadFile(fileName, fileLocation: String);
+//Downloads 'onlineLocation' and stores at 'fileName'
+procedure DownloadFile(fileName, onlineLocation: String);
 var
   fileLocal: LongInt;
-  download: String;
+  download, directory: String;
 begin
   try
+    directory:= getDirectoryFromFile(fileName);
+    if(not DirectoryExists(directory))then
+      createDirectoryList(directory);
     if not FileExists(fileName) then
       fileLocal := CreateFile(fileName)
     else
@@ -68,12 +101,13 @@ begin
         Exit;
       end;
     end;
-    CloseFile(fileLocal);
+    if(fileLocal >= 0)then
+      CloseFile(fileLocal);
     fileLocal := RewriteFile(fileName, False);
-    download:= GetPage(fileLocation);
+    download:= GetPage(onlineLocation);
     WriteFileString(fileLocal, download);
   finally
-    if(fileLocal > 0)then
+    if(fileLocal >= 0)then
       CloseFile(fileLocal);
   end;
 end;
@@ -91,55 +125,40 @@ begin
   MessageBox(updateNotes, ('Update Notes V' + versionRemote), 0);
 end;
 
-procedure Update(updatePage, updateNotesPage, versionPage, fileName: string);//TODO?
+procedure Update(updatePage, updateNotesPage, fileName: string);//TODO?
 var
   version_remote, update: string;
   fh: integer;
   remoteNum: extended;
 begin
   WriteLn('Update check...');
-  version_remote := GetPage(versionPage);
+  update:= GetPage(updatePage);
+  version_remote:= Between('VERSION = ', ';', update);//GetPage(versionPage);
   try
-    version_remote := GetPage(versionPage);
     remoteNum:= StrToFloat(version_remote);
   except
-    WriteLn('Update check failed!');
+    WriteLn('Update check failed!  Waiting 7.5s to give you a chance to notice this message.');
+    Wait(7500);
     Exit;//Update isn't necessarily required
   end;
   if (remoteNum > VERSION) then
   begin
-    if MessageBox(ScriptFile + ' V' + version_remote + ' is available. Do you wish to update?', 'Newer version available', 1) = 1 then
+    if MessageBox('V' + version_remote + ' is available for ' + fileName + '. Do you wish to update?', 'Newer version available', 1) = 1 then
     begin
-      try
-      begin
-        fh := Rewritefile(ScriptPath + ScriptFile + version_remote + '.simba', true);
-        update:= GetPage(updatePage);
-        if((update = '') or (pos('<!DOCTYPE HTML PUBLIC', update) = 1))then
-        begin
-          WriteLn('Something failed in updating the script.  However, an update is out.');
-          Exit;
-        end;
-        WriteFileString(fh, update);
-        MessageBox('Successfully updated ' + ScriptFile + ' to V' + version_remote + '! Please open the newly saved script to run the newest version.', 'Success', 0);
-        CloseFile(fh);
-        GetUpdateNotes(version_remote, '');
-        TerminateScript();
-      end;
-      except
-      begin
-        MessageBox('An error occurred while trying to update!', 'Error', 0);
-      end;
-      finally
-        begin
-          CloseFile(fh);
-        end;
-      end;
+      DownloadFile(fileName, updatePage);
     end else
     begin
       WriteLn('Update was declined :(');
     end;
-  end;
-  WriteLn('No update needed.');
+  end else
+    WriteLn('No update needed.');
+end;
+
+procedure InitializeKevinCustomMethods();
+begin
+  if(not FileExists(soundFile))then
+    DownloadFile(soundFile,'https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/Air%20Horn.wav');
+  Update('https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/kevinCustomMethods.simba', '', '../Includes/ogLib/lib/kevinCustomMethods.simba');
 end;
 
 procedure AmIBrowsingAnotherWindow();
@@ -361,6 +380,9 @@ begin
   end else if(texture.id = 24480)then//Bar splitting tab textures from inventory slot textures
   begin
     result:= false;
+  end else if(texture.id = 205590)then//ActionBarSlot
+  begin
+    result:= false;
   end;
 end;
 
@@ -383,7 +405,7 @@ begin
       //There are lots of generic textures we don't care about. let's not print those
       if(isSearchableTexture(texture))then
       begin
-        if(texture.bounds.X2 - texture.bounds.x1 > 10) and (texture.bounds.y2 - texture.bounds.y1 > 15)then
+        if(texture.bounds.X2 - texture.bounds.x1 > 25) and (texture.bounds.y2 - texture.bounds.y1 > 20)then
         begin
           writeln(texture);
           if((point.x > 35) and (point.y > 10) and (point.x + 50 < 800) and (point.y + 10 < 600))then
@@ -396,8 +418,11 @@ begin
 end;
 
 procedure printAllTexturesInMinimap();
+var
+  box: TBox;
 begin
-  printAllTexturesInArea(mainScreenX, 0, 800, 198);
+  //box:= obsGetMiniMapBounds();
+  printAllTexturesInArea({box.x1, box.y1, box.x2, box.y2);//}mainScreenX, 0, 800, 198);
 end;
 
 procedure printAllTexturesInMainscreen();
@@ -530,13 +555,13 @@ begin
       end;
     end;
   end;
-  if(result = 1)then
+  {if(result = 1)then
   begin
     strCount:= ogl.getChars(SuperSizedBox(itemTextures[i].bounds, 4)).toString();
     if(strCount = '')then
       strCount:= '1';
     result:= StrToInt(strCount);
-  end;
+  end;}
 end;
 
 //Retrieves the matching item found in the last possible slot (top left start count like a book)
