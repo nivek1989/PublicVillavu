@@ -15,7 +15,7 @@ const
 
   InventionSpellTextureID = 32938;
 
-  DVERSION = 1.00;//Don't edit this.  It's for updates.
+  DVERSION = 0.99;//Don't edit this.  It's for updates.
 
 var
   failureCD: tCountDown;
@@ -143,12 +143,12 @@ end;
 begin
   InitializeKevinCustomMethods();
   Update('https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/Disassembleathon.simba', 'https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/Disassembleathon.txt', ScriptPath + ScriptFile, DVERSION);
-  {mainScreenBox:= IntToBox(0, 0, mainScreenX, mainScreenY);
+  mainScreenBox:= IntToBox(0, 0, mainScreenX, mainScreenY);
   ogl.setup([800, 600], [0, 0, mainScreenX, mainScreenY]);
   ogl.setDebugMode('n');
   smart.graphics.Clear();
   ClearDebug();
   disableSRLDebug:=true;
   clientCenter := Point(288, 189);// ogl.getClientMidPoint();
-  disassemble();}
+  disassemble();
 end.
