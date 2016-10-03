@@ -47,12 +47,6 @@ begin
   textures:= ogl.getTextures(10710, 2703647);
   if(textures.indexes() > 0)then
     result:= (textures[0].bounds.X2 - textures[0].bounds.X1) / 292;
-  if(result > 1)then
-  begin
-    biggestProductionCount:= 'size is ' + ToString(textures[0].bounds.X2 - textures[0].bounds.X1);
-    unexpectedOccurrence('tProduction.getActualProgress()', 'ToString(textures[0].bounds.X2 - textures[0].bounds.X1)', DEBUG);
-  end;
-  {ID = 10710, COLOURID = 2703647, FULLCOLOURID = 4613687, X = 284, Y = 161, BOUNDS = {X1 = 142, Y1 = 152, X2 = 427, Y2 = 171}
 end;
 
 function disassemble(): boolean;
@@ -73,14 +67,18 @@ begin
     TerminateScript();
   end;
   DebugPrint('Inventory count: ' + inttostr(i), DEBUG);
-  inventionPouch:= ogl.getTextures(11926);
-  if(inventionPouch.indexes() = 0)then
+  if(DRAG)then
   begin
-    killScript('No invention pouch found... Open up your inventory?');
+    inventionPouch:= ogl.getTextures(11926);
+    if(inventionPouch.indexes() = 0)then
+    begin
+      killScript('No invention pouch found... Open up your inventory?');
+    end;
+  end else begin
+    actionKey:= tactionBar.getActionKey(InventionSpellTextureID);
+    if(actionKey = '')then
+      killScript('Invention spell does not appear to be setup on your actionBar!');
   end;
-  actionKey:= tactionBar.getActionKey(InventionSpellTextureID);
-  if(actionKey = '')then
-    killScript('Invention spell does not appear to be setup on your actionBar!');
 
   items:= getAllTexturesInInventory();
   while(areAnyTexturesValid(items))do
@@ -143,7 +141,8 @@ begin
 end;
 
 begin
-  {InitializeKevinCustomMethods();
+  InitializeKevinCustomMethods();
+  Update('https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/Disassembleathon.simba', 'https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/Disassembleathon.txt', ScriptPath + ScriptFile, DVERSION);
   mainScreenBox:= IntToBox(0, 0, mainScreenX, mainScreenY);
   ogl.setup([800, 600], [0, 0, mainScreenX, mainScreenY]);
   ogl.setDebugMode('n');
@@ -151,10 +150,5 @@ begin
   ClearDebug();
   disableSRLDebug:=true;
   clientCenter := Point(288, 189);// ogl.getClientMidPoint();
-  DownloadFile('../raw.txt','https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/kevinCustomMethods.simba');
-  //Update('https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/kevinCustomMethods.simba', '', '../tempPlacement.simba');
-  //printAllTexturesInMinimap();
-  //printAllTexturesInArea(365,405,457,456);
-  disassemble();}
-  InitializeKevinCustomMethods();
+  disassemble();
 end.

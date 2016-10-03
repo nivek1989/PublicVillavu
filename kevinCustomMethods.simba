@@ -7,19 +7,52 @@
 const
   mainScreenX = 576;
   mainScreenY = 378;
-  VERSION = 0.98;
+  VERSION = 1.00;
   soundFile:= '../Air Horn.wav';
 
 var
   clientCenter: TPoint;
   mainScreenBox: TBox;
   playerModel: glModel;
+  logOutCD: TCountdown;
+  form: ezForm;
+
 
 procedure killScript(reason: string);
 begin
   Writeln(reason);
   TerminateScript;
 end;
+
+procedure checkLogoutTimer(runTime: int64; everEnd: boolean);
+begin
+  if(everEnd and logOutCD.isFinished())then
+  begin
+    killScript('Script has reached the end of its designated ' + TOSTRING(runTime) + ' minutes!');
+  end;
+end;
+
+procedure initializeGenericForm();
+begin
+
+end;
+
+//Why does such a simple function exist you ask?  Because whoever wrote IntToBox() and Point()
+//Doesn't know what consistent standards are.
+function Box(x1, y1, x2, y2: int32): TBox;
+begin
+  result:= IntToBox(x1, y1, x2, y2);
+end;
+
+//Similar to box.expand, but returns a new reference instead of self editing
+function SuperSizedBox(box: tbox; size: int32): tbox;
+begin
+  result.X1:= box.X1 - size;
+  result.Y1:= box.Y1 - size;
+  result.X2:= box.X2 + size;
+  result.Y2:= box.Y2 + size;
+end;
+
 
 procedure debugPrint(str: string; debug: boolean);
 begin
@@ -95,17 +128,10 @@ begin
     if not FileExists(fileName) then
     begin
       fileLocal := CreateFile(fileName);
-    end else begin
-      fileLocal:=  OpenFile(fileName, true);
-      if(FileSize(fileLocal) >= 0)then
-      begin
-        CloseFile(fileLocal);
-        Exit;
-      end;
     end;
     if(fileLocal >= 0)then
       CloseFile(fileLocal);
-    fileLocal := RewriteFile(fileName, False);
+    fileLocal := RewriteFile(fileName, true);
     download:= GetPage(onlineLocation);
     WriteFileString(fileLocal, download);
   finally
@@ -127,7 +153,7 @@ begin
   MessageBox(updateNotes, ('Update Notes V' + versionRemote), 0);
 end;
 
-procedure Update(updatePage, updateNotesPage, fileName: string);//TODO?
+procedure Update(updatePage, updateNotesPage, fileName: string; currentVersion: extended);//TODO?
 var
   version_remote, update: string;
   fh: integer;
@@ -143,7 +169,7 @@ begin
     Wait(7500);
     Exit;//Update isn't necessarily required
   end;
-  if (remoteNum > VERSION) then
+  if (remoteNum > currentVersion) then
   begin
     if MessageBox('V' + version_remote + ' is available for ' + fileName + '. Do you wish to update?', 'Newer version available', 1) = 1 then
     begin
@@ -160,7 +186,7 @@ procedure InitializeKevinCustomMethods();
 begin
   if(not FileExists(soundFile))then
     DownloadFile(soundFile,'https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/Air%20Horn.wav');
-  Update('https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/kevinCustomMethods.simba', 'https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/kevinCustomMethodsNotes.txt', '../Includes/ogLib/lib/kevinCustomMethods.simba');
+  Update('https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/kevinCustomMethods.simba', 'https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/kevinCustomMethodsNotes.txt', '../Includes/ogLib/lib/kevinCustomMethods.simba', VERSION);
 end;
 
 procedure AmIBrowsingAnotherWindow();
@@ -238,7 +264,7 @@ begin
   s := time mod 3600000 mod 60000 div 1000;
   m := time mod 3600000 div 60000;
   h := time div 3600000;
-  result:= (toStr(h) + ' h ' + toStr(m) + ' m ' + toStr(s) + ' s');
+  result:= (toStr(h) + 'h ' + toStr(m) + 'm ' + toStr(s) + 's');
 end;
 
 procedure printAllModelsInArea(x1, y1, x2, y2: integer);
@@ -291,19 +317,17 @@ begin
   end;
 end;
 
-function printAllCharsInAreaAsString(x1, y1, x2, y2: integer): string;
+function isTextInArea(x1, y1, x2, y2: integer; text: String): boolean;
 var
-  all: glCharArray;
-  i: integer;
+  str: string;
 begin
-  all:= ogl.getChars();
-  for i:=0 to high(all) do
-  begin
-    if(inTheMiddle(all[i].x, x1, x2) and inTheMiddle(all[i].y, y1, y2))then
-    begin
-      result += all[i].letter;
-    end;
-  end;
+  str:= ogl.getChars(IntToBox(0, 0, mainScreenX, mainScreenY)).toString();
+  result:= Pos(text, str) > 0;
+end;
+
+function printAllCharsInAreaAsString(x1, y1, x2, y2: integer): string;
+begin
+  result:= ogl.getChars(IntToBox(x1, y1, x2, y2)).toString();
 end;
 
 //1 through 4, starting at the bottom.  Returns all [count] lines.
@@ -328,20 +352,23 @@ begin
   end;
 end;
 
-//Why does such a simple function exist you ask?  Because whoever wrote IntToBox() and Point()
-//Doesn't know what consistent standards are.
-function Box(x1, y1, x2, y2: int32): TBox;
+function isTextInChatBox(str: string): boolean;
 begin
-  result:= IntToBox(x1, y1, x2, y2);
+  result:= Pos(str, readLastChatLines(4)) > 0;
 end;
 
-//Similar to box.expand, but returns a new reference instead of self editing
-function SuperSizedBox(box: tbox; size: int32): tbox;
+//Returns 0 if nothing found, else the level achieved.
+function didLevelUp(skill: String): int32;
+var
+  position: int32;
+  chat: String;
 begin
-  result.X1:= box.X1 - size;
-  result.Y1:= box.Y1 - size;
-  result.X2:= box.X2 + size;
-  result.Y2:= box.Y2 + size;
+  chat:= readLastChatLines(4);
+  position:= pos('You''ve just advanced a ' + skill + ' level! You have reached level ', chat);
+  if(position <> 0)then
+  begin
+    result:= StrToInt(copy(chat, position+66, 2));
+  end;
 end;
 
 procedure drawBoxAroundTexture(texture: glTexture);
@@ -407,7 +434,7 @@ begin
       //There are lots of generic textures we don't care about. let's not print those
       if(isSearchableTexture(texture))then
       begin
-        if(texture.bounds.X2 - texture.bounds.x1 > 25) and (texture.bounds.y2 - texture.bounds.y1 > 20)then
+        if(texture.bounds.X2 - texture.bounds.x1 > 1) and (texture.bounds.y2 - texture.bounds.y1 > 1)then
         begin
           writeln(texture);
           if((point.x > 35) and (point.y > 10) and (point.x + 50 < 800) and (point.y + 10 < 600))then

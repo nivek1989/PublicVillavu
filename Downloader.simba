@@ -1,0 +1,66 @@
+program DownloadScript;
+
+const
+  soundFile = '../Air horn.wav';
+
+function getDirectoryFromFile(str: String): String;
+var
+  i, count: int32;
+  directories: TStringArray;
+begin
+  directories:= explode('/', str);
+  count:= high(directories) - 1;
+  for i:=0 to count do
+  begin
+    result:= result + directories[i] + '/';
+  end;
+end;
+
+procedure createDirectoryList(str: String);
+var
+  directories: TStringArray;
+  currentDirectory: String;
+  i, count: int32;
+begin
+  directories:= explode('/', str);
+  count:= high(directories);
+  for i:=0 to count do
+  begin
+    currentDirectory:= currentDirectory + directories[i] + '/';
+    if((directories[i] <> '..') and (not DirectoryExists(currentDirectory)))then
+      CreateDirectory(currentDirectory);
+  end;
+end;
+
+//Downloads 'onlineLocation' and stores at 'fileName'
+procedure DownloadFile(fileName, onlineLocation: String);
+var
+  fileLocal: LongInt;
+  download, directory: String;
+begin
+  try
+    directory:= getDirectoryFromFile(fileName);
+    if(not DirectoryExists(directory))then
+    begin
+      createDirectoryList(directory);
+    end;
+    if not FileExists(fileName) then
+    begin
+      fileLocal := CreateFile(fileName);
+    end;
+    if(fileLocal >= 0)then
+      CloseFile(fileLocal);
+    fileLocal := RewriteFile(fileName, true);
+    download:= GetPage(onlineLocation);
+    WriteFileString(fileLocal, download);
+  finally
+    if(fileLocal >= 0)then
+      CloseFile(fileLocal);
+  end;
+end;
+
+begin
+  if(not FileExists(soundFile))then
+    DownloadFile(soundFile,'https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/Air%20Horn.wav');
+  DownloadFile('../Includes/ogLib/lib/kevinCustomMethods2.simba', 'https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/kevinCustomMethods.simba');
+end.
