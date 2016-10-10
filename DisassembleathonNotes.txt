@@ -1,1 +1,1 @@
-This is the first version, I recommend reading the code itself or reading the Villavu page to learn about this.  Thanks!
+Just a few cleanups this patch.

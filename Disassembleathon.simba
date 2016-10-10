@@ -39,16 +39,6 @@ begin
 
 end;
 
-//GetProgress does not work and I'm unsure how it's supposed to work, hence a from-scratch creation.
-function tProduction.getActualProgress(): extended;
-var
-  textures: glTextureArray;
-begin
-  textures:= ogl.getTextures(10710, 2703647);
-  if(textures.indexes() > 0)then
-    result:= (textures[0].bounds.X2 - textures[0].bounds.X1) / 292;
-end;
-
 function disassemble(): boolean;
 var
   items, inventionPouch: glTextureArray;
@@ -142,7 +132,7 @@ end;
 
 begin
   InitializeKevinCustomMethods();
-  Update('https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/Disassembleathon.simba', 'https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/Disassembleathon.txt', ScriptPath + ScriptFile, DVERSION);
+  Update('https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/Disassembleathon.simba', 'https://raw.githubusercontent.com/nivek1989/PublicVillavu/master/DisassembleathonNotes.txt', ScriptPath + ScriptFile, DVERSION);
   mainScreenBox:= IntToBox(0, 0, mainScreenX, mainScreenY);
   ogl.setup([800, 600], [0, 0, mainScreenX, mainScreenY]);
   ogl.setDebugMode('n');

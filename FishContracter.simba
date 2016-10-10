@@ -1,0 +1,253 @@
+program FishContracter;
+{$include_once ogLib/lib/kevinCustomMethods.simba}
+
+const
+  JUSTFISH = FALSE;
+  DISASSEMBLE = TRUE;//Disassembles your fishing object
+
+  fishingContractTextureID = 98472;
+  rodOMaticFishingSpotModelID = 3363057658;
+  emptyFishingSpotModelID = 1983977839;
+  fishingSpotTextureID = 40091;
+  depositBoxID = 2800082121;
+  depositAllTextureID = 39780;
+  bankMinimapTextureID = 45052;
+  contractorModelID = 3664883923;
+  contractorDotTextureID = [3570];
+  contractorDotColorID = [9407750, 9408002, 8818438];
+  fishTextureIDs = [46410, 63750];//Seerfish, sillago, prawn ball =75735
+  {
+  We've been running for 1h 3m 43s.
+We have completed 5 contracts so far!
+We have had to deposit 13 loads so far!
+Contract completed!
+No more contracts to get
+138540xp}
+{We've been running for 1h 16m 57s.
+We have completed 5 contracts so far!
+We have had to deposit 16 loads so far.
+Contract completed!
+No more contracts to get
+123500xp}
+{We've been running for 2h 0m 29s.
+We have completed 5 contracts so far!
+We have had to deposit 26 loads so far.
+No more contracts to get
+196090 xp}
+
+var
+  newContractCD, failureCD: tCountDown;
+  contractsCompleted, bankTrips: int32;
+
+procedure proggy();
+begin
+  proggressReport();
+  writeln('We have completed ' + ToString(contractsCompleted) + ' contracts so far!');
+  writeln('We have had to deposit ' + ToString(bankTrips) + ' loads so far.');
+end;
+
+function getNewContract(): boolean;
+var
+  contractorModel: glModelArray;
+  contractorDotTexture, fishTexture: glTextureArray;
+  clickPoint: TPoint;
+  found: boolean;
+  failureCD2: tCountDown;
+begin
+  contractorModel:= ogl.getModels(contractorModelID);
+  if((contractorModel.indexes() = 0) or (contractorModel[0].Y > (mainScreenY - 5)))then
+  begin
+    contractorDotTexture:= ogl.getTextures(contractorDotTextureID, contractorDotColorID);
+    if(contractorDotTexture.indexes() > 0)then
+    begin
+      mouse(contractorDotTexture[0].randomizePointEllipse(20), mouse_Left);
+    end else begin//Guess north where dot should be.
+      mouse(Point(699,46).randomizePointEllipse(20), mouse_Left);
+    end;
+
+    Wait(1750);
+    repeat
+      contractorModel:= ogl.getModels(contractorModelID);
+    until(contractorModel.indexes() > 0);
+    Wait(RandomRange(1500,2200));
+    contractorModel:= ogl.getModels(contractorModelID);
+  end;
+  clickPoint:= Point(contractorModel[0].X, contractorModel[0].Y);
+  if(tmouse.rightClickOption(clickPoint.randomizePointEllipse(20), 'Contract Hubbub (contracts)', random(300, 600))) then
+  begin
+    failureCD.setTime(15000);
+    repeat
+      Wait(RandomRange(550, 850));
+      fishTexture:= ogl.getTextures(fishingContractTextureID);
+      found:= isTextInChatBox('You are limited to ') and isTextInChatBox(' contracts per day.');
+    until(failureCD.isFinished or (fishTexture.indexes() > 0) or found);
+    if(found)then
+      exit;
+    if(fishTexture.indexes() = 0)then
+      killScript('The new contract screen never showed up.');
+    found:= isTextInArea(0, 0, mainScreenX, mainScreenY, 'Confirm Current Contract');
+    if(not found)then
+    begin
+      failureCD.setTime(5000);
+      repeat
+        SendKeys('1', 15+random(10), 15+random(10));
+        Wait(RandomRange(650, 850));
+        failureCD2.setTime(2500);
+        repeat
+          //fishTexture:= ogl.getTextures(fishingContractTextureID);
+          Wait(RandomRange(150, 250));
+          found:= isTextInArea(0, 0, mainScreenX, mainScreenY, 'Confirm Current Contract');
+        until(found or failureCD2.isFinished);
+      until(failureCD.isFinished or found);
+    end;
+    if(found)then
+    begin
+      repeat
+        SendKeys('1', 15+random(10), 15+random(10));
+        Wait(RandomRange(650, 850));
+        //fishTexture:= ogl.getTextures(fishingContractTextureID);
+        found:= isTextInArea(0, 0, mainScreenX, mainScreenY, 'Confirm Current Contract');
+      until(failureCD.isFinished or not found);
+      if(not found)then
+        result:= true;
+    end;
+  end;
+end;
+
+function depositAllDepositBox(): boolean
+var
+  depositBox: glModelArray;
+  fishTextures, bankTexture: glTextureArray;
+  failureCD: TCountDown;
+begin
+  depositBox:= ogl.getModels(depositBoxID);
+  if((depositBox.indexes() = 0) or (not inTheMiddle(depositBox[0].Y, 0, mainScreenY - 5)))then
+  begin
+    bankTexture:= ogl.getTextures(bankMinimapTextureID);
+    if(bankTexture.indexes() = 0)then
+      killScript('Could not find deposit box (texture).');
+    mouse(bankTexture[0].randomizePointEllipse(20), mouse_Left);
+    Wait(1000);
+    waitFlag();
+    Wait(1750);
+    depositBox:= ogl.getModels(depositBoxID);
+  end;
+  if(depositBox.indexes() = 0)then
+    killScript('Could not find the bank deposit box.');
+  mouse(depositBox[0].randomizePointEllipse(15), mouse_Left);
+  failureCD.setTime(10000);
+  repeat
+    Wait(350);
+    bankTexture:= ogl.getTextures(depositAllTextureID);
+  until((bankTexture.indexes() > 0) or (failureCD.isFinished));
+  if(bankTexture.indexes() = 0)then
+    killScript('Deposit Box never opened.');
+
+  bankTrips:= bankTrips + 1;
+  Wait(RandomRange(150, 750));
+  failureCD.setTime(2000);
+  repeat
+    SendKeys('3', 15+random(10), 15+random(10));
+    Wait(RandomRange(600, 950));
+    bankTexture:= ogl.getTextures(depositAllTextureID);
+    fishTextures:= ogl.getTextures(fishTextureIDs);
+  until((bankTexture.indexes() = 0) or failureCD.isFinished or (fishTextures.indexes() = 0));
+  multiType(VK_ESCAPE, randomRange(30, 50), 2);
+end;
+
+function checkContractComplete(): boolean;
+begin
+  if(JUSTFISH)then
+    exit;
+  result:= (newContractCD.isFinished and (pos('You have completed your contract. Return to Hubbub (contracts) for your reward.', readLastChatLines(4)) <> 0));
+end;
+
+function fish(): boolean;
+var
+  fishingSpotModels: glModelArray;
+  closestFishingSpot: glModel;
+  fishingSpotTextures: glTextureArray;
+  i: integer;
+  justDeposited: boolean;
+begin
+  if(inventory.isFull)then
+    depositAllDepositBox();
+  fishingSpotModels:= ogl.getModels([rodOMaticFishingSpotModelID, emptyfishingSpotModelID]);
+  if(fishingSpotModels.indexes() = 0)then
+  begin
+    debugPrint('No models found... Gonna have to move a bit.');
+    fishingSpotTextures:= ogl.getTextures(fishingSpotTextureID);
+    if(fishingSpotTextures.indexes() = 0)then
+      killScript('Could not find a fishing texture.');
+    mouse(fishingSpotTextures[0].adjustPosition(0,RandomRange(7,13)).randomizePointEllipse(20), mouse_Left);
+    Wait(1500);
+    waitFlag();
+    Wait(1000);
+    justDeposited:= true;//Not actually true, but no sense waiting when we just walked over here.
+    fishingSpotModels:= ogl.getModels([rodOMaticFishingSpotModelID, emptyfishingSpotModelID]);
+    if(fishingSpotModels.indexes() = 0)then
+      killScript('Could not find a fishing spot.');
+  end;
+  repeat
+    if(playerModel.ID = getPlayerModel().ID)then
+    begin
+      debugPrint('We''ve noticed we''re no longer fishing.  Time to click a new spot after a short delay (we are human-ish afterall).');
+      if(not justDeposited)then
+        waitActivePlay(800,17000);
+      //Check for rod spots first, then empty spots.  Why do this so inefficiently?  Because it's human-like
+      fishingSpotModels:= ogl.getModels(rodOMaticFishingSpotModelID);
+      if(fishingSpotModels.indexes() = 0)then
+        fishingSpotModels:= ogl.getModels(emptyFishingSpotModelID);
+      closestFishingSpot:= fishingSpotModels.closestTo(clientCenter)[0];
+      mouse(closestFishingSpot.randomizePointEllipse(15), mouse_Left);
+      Wait(1000);
+      waitFlag();
+      Wait(1500);
+    end;
+
+    AmIBrowsingAnotherWindow();
+    Wait(RandomRange(800, 1350));
+    proggy();
+    if(inventory.isFull)then
+    begin
+      debugPrint('Inventory full.');
+      depositAllDepositBox();
+      justDeposited:= true;
+    end else
+      justDeposited:= false;
+  until(checkContractComplete);
+  newContractCD.setTime(90000);
+  debugPrint('Contract completed!');
+end;
+
+var
+  tpt: TPoint;
+  oglmodel: glModel;
+
+begin
+  InitializeKevinCustomMethods();
+  initializeGenericForm();
+  ogl.setup([800, 600], [0, 0, mainScreenX, mainScreenY]);
+  ogl.setDebugMode('n');
+  smart.graphics.Clear();
+  disableSRLDebug:=true;
+  clientCenter := Point(288, 189);// ogl.getClientMidPoint();
+  setCameraLikePlayer();
+  playerModel:= getPlayerModel();
+  if(JUSTFISH)then
+  begin
+    Fish();
+  end else begin
+    repeat
+      if(getNewContract())then
+      begin
+        fish();
+        contractsCompleted:= contractsCompleted + 1;
+        proggy();
+      end else begin
+        Writeln('No more contracts to get');
+        TerminateScript();
+      end;
+    until(false);{}
+  end;
+end.

@@ -1,1 +1,5 @@
-This is the first version, too much exists for a few notes, so if you're curious, I recommend reading the code itself.  Thanks!
+Proggress Reports now have a default implementation.
+There is now a default ezForm in place.
+A few production screen methods have been added.
+Added a verification on model checks to make sure they are actually on screen.
+Method exists for Disassembling level 10 items, as well as checking if they have just reached level 10.

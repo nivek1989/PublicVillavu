@@ -7,15 +7,16 @@
 const
   mainScreenX = 576;
   mainScreenY = 378;
-  VERSION = 1.00;
+  VERSION = 1.10;
   soundFile:= '../Air Horn.wav';
 
 var
   clientCenter: TPoint;
   mainScreenBox: TBox;
   playerModel: glModel;
-  logOutCD: TCountdown;
+  logOutCD, disassembledCD: TCountdown;
   form: ezForm;
+  ezGroupBox, ezNotifyPlayer, ezPlaySound, ezDebug: eZElement;
 
 
 procedure killScript(reason: string);
@@ -34,7 +35,37 @@ end;
 
 procedure initializeGenericForm();
 begin
+  form.create(explode('.', ScriptFile)[0]);
+  form.addImage('http://vignette2.wikia.nocookie.net/jagex/images/a/a8/RuneScape_banner.png/revision/latest?cb=20090801203746', '', [0, 0], [280, 75], nil);
+  ezGroupBox:= form.addGroupbox('Settings', 'b s10', '', [10, 90], [260, 120]);
+  ezDebug := form.addCheckbox('Debug?', 's8' , '', [20, 115], nil).prop('checked', true);
+  ezNotifyPlayer := form.addCheckbox('Look at RS!', 's8', '', [20, 145], nil).prop('checked', false);
+  ezPlaySound := form.addCheckbox('Play Sound Notify?', 's8', '', [20, 175], nil).prop('checked', true);
+end;
 
+//getTime written by Clarity
+function getTime(time: uint32): string;
+var
+  h, m, s: integer;
+begin
+  s := time mod 3600000 mod 60000 div 1000;
+  m := time mod 3600000 div 60000;
+  h := time div 3600000;
+  result:= (toStr(h) + 'h ' + toStr(m) + 'm ' + toStr(s) + 's');
+end;
+
+procedure proggressReport();
+var
+  time: LongWord;
+begin
+  ClearDebug();
+  time:= GetTimeRunning();
+  write('We''ve been running for ' + getTime(time));
+  if(logOutCD.timeRemaining > 0)then
+  begin
+    writeln(' with ' + getTime(logOutCD.timeRemaining) + ' remaining.');
+  end else
+    writeln('.');
 end;
 
 //Why does such a simple function exist you ask?  Because whoever wrote IntToBox() and Point()
@@ -53,10 +84,9 @@ begin
   result.Y2:= box.Y2 + size;
 end;
 
-
-procedure debugPrint(str: string; debug: boolean);
+procedure debugPrint(str: string);
 begin
-  if(debug)then
+  if(ezdebug.checked())then
     writeln(str);
 end;
 
@@ -174,13 +204,14 @@ begin
     if MessageBox('V' + version_remote + ' is available for ' + fileName + '. Do you wish to update?', 'Newer version available', 1) = 1 then
     begin
       DownloadFile(fileName, updatePage);
-      MessageBox('Please close your instance of Simba and reload for the update to take effect.', ('Update V' + versionRemote), 0);
+      MessageBox('Please close your instance of Simba and reload for the update to take effect.', ('Update V' + ToString(remoteNum)), 0);
     end else
     begin
       WriteLn('Update was declined :(');
     end;
   end else
     WriteLn('No update needed.');
+  initializeGenericForm();
 end;
 
 procedure InitializeKevinCustomMethods();
@@ -247,25 +278,14 @@ begin
   wait(RandomRange(min, max));
 end;
 
-function buildWaitTimer(min, max: integer; afkDelay, debug: boolean): integer;
+function buildWaitTimer(min, max: integer; afkDelay: boolean): integer;
 begin
   result:= RandomRange(min, max);
   if(afkDelay)then
   begin
     result:= result + randomRange(30000, 90000);
-    debugPrint('We''re gonna wait ' + inttostr(result) + 'ms until our next action because we''re pretending to be a human.', debug);
+    debugPrint('We''re gonna wait ' + inttostr(result) + 'ms until our next action because we''re pretending to be a human.');
   end;
-end;
-
-//getTime written by Clarity
-function getTime(time: uint32): string;
-var
-  h, m, s: integer;
-begin
-  s := time mod 3600000 mod 60000 div 1000;
-  m := time mod 3600000 div 60000;
-  h := time div 3600000;
-  result:= (toStr(h) + 'h ' + toStr(m) + 'm ' + toStr(s) + 's');
 end;
 
 procedure printAllModelsInArea(x1, y1, x2, y2: integer);
@@ -299,7 +319,7 @@ begin
   printAllModelsInArea(0, 0, mainScreenX, mainScreenY);
 end;
 
-function getPlayerModel(debug: boolean): glModel;
+function getPlayerModel(): glModel;
 var
   playerBox: TBox;
   pModel: glModelArray;
@@ -312,7 +332,7 @@ begin
     if(pModel[i].TID > 1000)then
     begin
       result:= pModel[i];
-      DebugPrint('The player model is: ' + ToString(result), debug);
+      DebugPrint('The player model is: ' + ToString(result));
       exit;
     end;
   end;
@@ -370,6 +390,13 @@ begin
   begin
     result:= StrToInt(copy(chat, position+66, 2));
   end;
+end;
+
+function verifyModelOnScreen(model: GLModel): boolean;
+begin
+  if((model.X < 0) or (model.Y < 0) or (model.X > mainScreenX) or (model.Y > mainScreenY))then
+    exit;
+  result:= true;
 end;
 
 procedure drawBoxAroundTexture(texture: glTexture);
@@ -524,6 +551,45 @@ begin
   if(not found)then
     exit;
   result:= ogl.getTextures(inventoryBgTexture.bounds );
+end;
+
+//GetProgress does not work and I'm unsure how it's supposed to work, hence a from-scratch creation.
+function tProduction.getActualProgress(): extended;
+var
+  textures: glTextureArray;
+begin
+  textures:= ogl.getTextures(10710, 2703647);
+  if(textures.indexes() > 0)then
+    result:= (textures[0].bounds.X2 - textures[0].bounds.X1) / 292;
+end;
+
+function productionScreen.waitForOpenAndCompletion(errorLocation: String): boolean;//TODO: Test this completely
+var
+  failureCD: TCountdown;
+begin
+  failureCD.setTime(20000);
+  repeat
+    Wait(RandomRange(520, 870));
+  until(failureCD.isFinished or productionScreen.isOpen());
+  if(not productionScreen.isOpen())then
+    killScript('Production screen at ' + errorLocation + ' never opened.');
+
+  failureCD.setTime(3000);
+  repeat
+    productionScreen.clickStart(true);
+    Wait(RandomRange(500, 650));
+  until(failureCD.isFinished or (not productionScreen.isOpen()));
+  if(productionScreen.isOpen())then
+  begin
+    productionScreen.clickStart(true);
+    Wait(RandomRange(700,1350));
+  end;
+  failureCD.setTime(3000);
+  repeat
+    productionScreen.clickStart(true);
+    Wait(RandomRange(500, 650));
+  until(failureCD.isFinished or (not productionScreen.isOpen()));
+  result:= not productionScreen.isOpen();
 end;
 
 //todo fix this.  Really only works with individual items atm.
@@ -684,6 +750,85 @@ begin
   end;
 end;
 
+function disassembleLevelTen(): boolean;
+var
+  tools, inventionPouch: glTextureArray;
+  tool: glTexture;
+  toolIDs: TIntegerArray;
+  i: integer;
+  clickPoint: TPoint;
+  success: boolean;
+begin
+  //killScript('Implement the disassembleLevelTen method completely');
+  gameTabs.openTab(TAB_EQUIPMENT);
+  toolIDs:= [48450, 58140];//Augmented crystal hatchet = 48450,Fishing rod-o-matic = 58140
+  for i:=0 to high(toolIDs) do
+  begin
+    tools:= ogl.getTextures(toolIDs[i]);
+    if(tools.indexes() > 0)then
+    begin
+      mouse(tools.closestTo(clientCenter)[0].randomizePointEllipse(15), mouse_Left);
+      gameTabs.openTab(TAB_BACKPACK);
+      wait(RandomRange(650,1350));
+      tool:= inventory.getItemLastSlot(toolIDs[i]);
+      Mouse(tool.randomizePointEllipse(15), MOUSE_MOVE);
+      GetMousePos(clickPoint.x, clickPoint.y);
+      inventionPouch:= ogl.getTextures(11926);
+      if(inventionPouch.indexes() > 0)then
+      begin
+        dragMouse(inventionPouch.closestTo(clickPoint)[0].randomizePointEllipse(10));
+        writeln('TODO: CONFIRM THAT THE CONFIRM Screen showed up');
+        wait(randomRange(550,1250));
+        SendKeys('1', 15+random(10), 15+random(10));
+        success:= true;
+      end;
+    end;
+  end;
+
+  //todo, test equipping next augmented item
+  if(success)then
+  begin
+    tool:= inventory.getItemFirstSlot(tool.ID);
+    mouse(tool.randomizePointEllipse(15), mouse_Left);
+    wait(RandomRange(650,1350));
+  end;
+
+
+  //This is generic logic for any disassembly... but generic won't be friendly after trying to find in mess of the backpack
+  {
+  var
+    equipmentSlots: glTextureArray;
+    expectedWeaponSlot: glTexture;
+
+  equipmentSlots:= ogl.getTextures(102626);
+  if(equipmentSlots.indexes() > 0)then
+  begin
+    writeln('success');
+    expectedWeaponSlot:= equipmentSlots[3];//At least appears to be consistently 3
+  end else
+    exit;
+  mouse(expectedWeaponSlot.randomizePointEllipse(15), MOUSE_MOVE);
+  wait(RandomRange(100,250));
+  if(pos('Remove Augmented', tMouse.getTooltip()) = 0)then
+  begin
+    GetMousePos(clickPoint.x, clickPoint.y);
+    ClickMouse(clickPoint.x, clickPoint.y, mouse_Left);
+    gameTabs.openTab(TAB_BACKPACK);
+  end;}
+end;
+
+//Augmented crystal hatchet, Fishing rod-o-matic
+function checkDisassemblyReady(shouldDisassemble: boolean; itemName: String): boolean;
+begin
+  if(shouldDisassemble and (disassembledCD.isFinished()) and (pos('Congratulations! Your ' + itemName + ' has gained a level! It is now level 10', readLastChatLines(4)) <> 0))then
+  begin
+    if(disassembleLevelTen())then
+    begin
+      disassembledCD.setTime(300000);
+      result:= true;
+    end;
+  end;
+end;
 
 
 
